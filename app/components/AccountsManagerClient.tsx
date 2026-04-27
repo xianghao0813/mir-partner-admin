@@ -59,7 +59,6 @@ export default function AccountsManagerClient() {
   const [currentAdminAccessLevel, setCurrentAdminAccessLevel] = useState(0);
 
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [roleGroup, setRoleGroup] = useState("content_manager");
   const [accessLevel, setAccessLevel] = useState(3);
   const [status, setStatus] = useState("active");
@@ -108,8 +107,8 @@ export default function AccountsManagerClient() {
       return;
     }
 
-    if (!email.trim() || !password.trim()) {
-      setError("请输入管理员邮箱和初始密码。");
+    if (!email.trim()) {
+      setError("请输入管理员邮箱。");
       return;
     }
 
@@ -119,7 +118,7 @@ export default function AccountsManagerClient() {
       const res = await fetch(adminPath("/api/admin/users"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, roleGroup, accessLevel, status }),
+        body: JSON.stringify({ email, roleGroup, accessLevel, status }),
       });
       const json = await res.json().catch(() => null);
 
@@ -128,11 +127,10 @@ export default function AccountsManagerClient() {
       }
 
       setEmail("");
-      setPassword("");
       setRoleGroup("content_manager");
       setAccessLevel(3);
       setStatus("active");
-      setMessage(`管理员账户已创建：${json?.user?.email ?? ""}`);
+      setMessage(`管理员邀请邮件已发送：${json?.user?.email ?? ""}`);
       await loadUsers();
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Failed to create admin user");
@@ -346,23 +344,18 @@ export default function AccountsManagerClient() {
 
       {activeSubsection === "create" ? (
       <section style={panelStyle}>
-        <div style={panelTitleStyle}>创建管理员账户</div>
+        <div style={panelTitleStyle}>邀请管理员账户</div>
         {!canManageAdminAccounts ? (
           <div style={readonlyNoticeStyle}>只有 Super Admin 可以创建新的管理员账户。</div>
         ) : null}
+        <div style={helperTextStyle}>
+          系统会向管理员邮箱发送邀请链接。对方打开邮件后完成邮箱验证，并自行设置登录密码。
+        </div>
         <form onSubmit={handleSubmit} style={{ display: "grid", gap: "12px" }}>
           <input
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="管理员邮箱"
-            style={inputStyle}
-            disabled={!canManageAdminAccounts}
-          />
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="初始密码"
             style={inputStyle}
             disabled={!canManageAdminAccounts}
           />
@@ -407,7 +400,7 @@ export default function AccountsManagerClient() {
           {error ? <div style={errorStyle}>{error}</div> : null}
           {message ? <div style={messageStyle}>{message}</div> : null}
           <button type="submit" disabled={creating || !canManageAdminAccounts} style={buttonStyle}>
-            {creating ? "创建中..." : "创建账户"}
+            {creating ? "发送中..." : "发送邀请"}
           </button>
         </form>
       </section>
@@ -638,6 +631,14 @@ const readonlyNoticeStyle: React.CSSProperties = {
   border: "1px solid rgba(255,255,255,0.07)",
   color: "#cbd5e1",
   fontSize: "14px",
+};
+
+const helperTextStyle: React.CSSProperties = {
+  marginTop: "8px",
+  marginBottom: "12px",
+  color: "#a1a1aa",
+  fontSize: "14px",
+  lineHeight: 1.7,
 };
 
 const subNavWrapStyle: React.CSSProperties = {

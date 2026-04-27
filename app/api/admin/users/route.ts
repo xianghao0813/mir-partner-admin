@@ -68,29 +68,43 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json();
   const email = String(body.email ?? "").trim();
-  const password = String(body.password ?? "").trim();
   const roleGroup = normalizeRoleGroup(body.roleGroup);
   const accessLevel = normalizeAccessLevel(body.accessLevel);
   const status = normalizeStatus(body.status);
 
-  if (!email || !password) {
+  if (!email) {
     return NextResponse.json(
-      { message: "Email and password are required." },
+      { message: "Email is required." },
       { status: 400 }
     );
   }
 
-  if (password.length < 8) {
+  const requestUrl = new URL(req.url);
+  const redirectTo = `${requestUrl.origin}/admin/accept-invite`;
+
+  const { data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+    redirectTo,
+    data: {
+      status,
+      role_group: roleGroup,
+    },
+  });
+
+  if (error) {
     return NextResponse.json(
-      { message: "Password must be at least 8 characters." },
-      { status: 400 }
+      { message: "Failed to send admin invitation", error: error.message },
+      { status: 500 }
     );
   }
 
-  const { data, error } = await supabaseAdmin.auth.admin.createUser({
-    email,
-    password,
-    email_confirm: true,
+  if (!data.user) {
+    return NextResponse.json(
+      { message: "Invitation was sent, but no user was returned." },
+      { status: 500 }
+    );
+  }
+
+  const { error: metadataError } = await supabaseAdmin.auth.admin.updateUserById(data.user.id, {
     app_metadata: {
       role_group: roleGroup,
       access_level: accessLevel,
@@ -98,12 +112,13 @@ export async function POST(req: NextRequest) {
     },
     user_metadata: {
       status,
+      role_group: roleGroup,
     },
   });
 
-  if (error) {
+  if (metadataError) {
     return NextResponse.json(
-      { message: "Failed to create admin account", error: error.message },
+      { message: "Invitation sent, but failed to set admin permissions", error: metadataError.message },
       { status: 500 }
     );
   }
@@ -118,6 +133,7 @@ export async function POST(req: NextRequest) {
         status,
         forceLogoutAt: null,
       },
+      redirectTo,
     },
     { status: 201 }
   );
