@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminSessionUser } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
+  appendAdminTestRechargeOrder,
   appendManualPointAdjustment,
   buildPartnerRecords,
   filterLedgerByMonth,
@@ -132,4 +133,81 @@ export async function PATCH(request: NextRequest) {
     },
     { status: failed.length === results.length ? 500 : 200 }
   );
+}
+
+export async function POST(request: NextRequest) {
+  let adminUser;
+
+  try {
+    adminUser = await requireAdminSessionUser();
+  } catch {
+    return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  }
+
+  const body = await request.json().catch(() => null);
+  const userId = String(body?.userId ?? "").trim();
+  const amount = Math.floor(Number(body?.amount ?? 0));
+  const remark = String(body?.remark ?? "").trim() || "管理员测试订单";
+  const orderNo =
+    String(body?.orderNo ?? "").trim() ||
+    `TEST${Date.now()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+
+  if (!userId) {
+    return NextResponse.json({ message: "请选择一个合伙人。" }, { status: 400 });
+  }
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return NextResponse.json({ message: "请输入大于 0 的订单金额。" }, { status: 400 });
+  }
+
+  const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
+
+  if (error || !data.user) {
+    return NextResponse.json(
+      { message: error?.message ?? "User not found" },
+      { status: 404 }
+    );
+  }
+
+  const existingWalletTransactions = Array.isArray(data.user.user_metadata?.wallet_transactions)
+    ? data.user.user_metadata.wallet_transactions
+    : [];
+  const duplicate = existingWalletTransactions.some((item) => {
+    if (!item || typeof item !== "object") return false;
+    return String((item as Record<string, unknown>).id ?? "") === `sdk-order-${orderNo}`;
+  });
+
+  if (duplicate) {
+    return NextResponse.json({ message: "该测试订单号已存在。" }, { status: 409 });
+  }
+
+  const testOrder = appendAdminTestRechargeOrder({
+    metadata: data.user.user_metadata,
+    amount,
+    orderNo,
+    remark,
+    adminEmail: adminUser.email ?? adminUser.id,
+  });
+
+  const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+    user_metadata: testOrder.metadata,
+  });
+
+  if (updateError) {
+    return NextResponse.json(
+      { message: "测试订单创建失败。", error: updateError.message },
+      { status: 500 }
+    );
+  }
+
+  return NextResponse.json({
+    success: true,
+    orderNo: testOrder.orderNo,
+    amount,
+    awardedPoints: testOrder.awardedPoints,
+    beforePoints: testOrder.beforePoints,
+    afterPoints: testOrder.afterPoints,
+    beforeCoins: testOrder.beforeCoins,
+    afterCoins: testOrder.afterCoins,
+  });
 }

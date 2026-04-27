@@ -42,6 +42,10 @@ export default function PartnersManagerClient() {
   const [adjustAmount, setAdjustAmount] = useState("");
   const [adjustReason, setAdjustReason] = useState("");
   const [adjusting, setAdjusting] = useState(false);
+  const [testAmount, setTestAmount] = useState("");
+  const [testOrderNo, setTestOrderNo] = useState("");
+  const [testRemark, setTestRemark] = useState("管理员测试订单");
+  const [creatingTestOrder, setCreatingTestOrder] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -164,6 +168,59 @@ export default function PartnersManagerClient() {
       setError(adjustError instanceof Error ? adjustError.message : "积分调整失败。");
     } finally {
       setAdjusting(false);
+    }
+  }
+
+  async function handleCreateTestOrder(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+
+    const amount = Math.floor(Number(testAmount));
+
+    if (!selectedPartner) {
+      setError("请选择一个合伙人。");
+      return;
+    }
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError("请输入大于 0 的测试订单金额。");
+      return;
+    }
+
+    setCreatingTestOrder(true);
+
+    try {
+      const res = await fetch(adminPath("/api/admin/partners"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: selectedPartner.id,
+          amount,
+          orderNo: testOrderNo,
+          remark: testRemark,
+        }),
+      });
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(json?.message ?? "测试订单创建失败。");
+      }
+
+      setMessage(
+        `测试订单已创建：${json?.orderNo ?? ""}，增加 ${Number(
+          json?.awardedPoints ?? 0
+        ).toLocaleString()} 积分。`
+      );
+      setTestAmount("");
+      setTestOrderNo("");
+      setTestRemark("管理员测试订单");
+      await loadPartners({ q: query, month });
+      setLedgerMode("points");
+    } catch (testOrderError) {
+      setError(testOrderError instanceof Error ? testOrderError.message : "测试订单创建失败。");
+    } finally {
+      setCreatingTestOrder(false);
     }
   }
 
@@ -351,6 +408,39 @@ export default function PartnersManagerClient() {
                 查看云币明细
               </button>
             </div>
+
+            <form onSubmit={handleCreateTestOrder} style={testOrderPanelStyle}>
+              <div>
+                <div style={eyebrowStyle}>Test Order</div>
+                <strong>创建测试订单</strong>
+                <div style={mutedTextStyle}>
+                  金额会同时增加云币，并按金额 x100 写入 MIR 积分明细。
+                </div>
+              </div>
+              <input
+                type="number"
+                min="1"
+                value={testAmount}
+                onChange={(event) => setTestAmount(event.target.value)}
+                placeholder="订单金额 / 云币"
+                style={compactInputStyle}
+              />
+              <input
+                value={testOrderNo}
+                onChange={(event) => setTestOrderNo(event.target.value)}
+                placeholder="测试订单号，可留空自动生成"
+                style={compactInputStyle}
+              />
+              <input
+                value={testRemark}
+                onChange={(event) => setTestRemark(event.target.value)}
+                placeholder="订单备注"
+                style={compactInputStyle}
+              />
+              <button type="submit" disabled={creatingTestOrder} style={primaryButtonStyle}>
+                {creatingTestOrder ? "创建中..." : "创建测试订单"}
+              </button>
+            </form>
 
             {ledgerMode && (
               <div style={ledgerPanelStyle}>
@@ -686,6 +776,16 @@ const adjustPanelStyle: React.CSSProperties = {
   marginBottom: "16px",
   display: "grid",
   gap: "12px",
+};
+
+const testOrderPanelStyle: React.CSSProperties = {
+  marginTop: "16px",
+  padding: "14px",
+  borderRadius: "18px",
+  background: "rgba(255,255,255,0.035)",
+  border: "1px solid rgba(255,255,255,0.07)",
+  display: "grid",
+  gap: "10px",
 };
 
 const adjustHeaderStyle: React.CSSProperties = {
