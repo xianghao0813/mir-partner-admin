@@ -81,10 +81,10 @@ export function filterLedgerByMonth(entries: LedgerEntry[], month: string) {
 
 export function readPartnerCode(metadata: UserMetadata | undefined, partnerNumber: number) {
   return (
-    readString(metadata?.partner_code) ||
-    readString(metadata?.mir_partner_code) ||
-    readString(metadata?.partnerCode) ||
-    String(partnerNumber).padStart(6, "0")
+    readValidPartnerCode(metadata?.partner_code) ||
+    readValidPartnerCode(metadata?.mir_partner_code) ||
+    readValidPartnerCode(metadata?.partnerCode) ||
+    `LP${String(partnerNumber).padStart(6, "0")}`
   );
 }
 
@@ -234,6 +234,11 @@ function readNumber(value: unknown) {
 
 function readString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function readValidPartnerCode(value: unknown) {
+  const raw = readString(value).toUpperCase();
+  return /^LP\d{6}$/.test(raw) ? raw : "";
 }
 
 function readIsoString(value: unknown) {
