@@ -1,0 +1,197 @@
+import type { User, UserMetadata } from "@supabase/supabase-js";
+
+export type PartnerTier = {
+  id: number;
+  label: string;
+  minPoints: number;
+};
+
+export const MIR_PARTNER_TIERS: PartnerTier[] = [
+  { id: 1, label: "米尔新星", minPoints: 0 },
+  { id: 2, label: "米尔一星", minPoints: 100000 },
+  { id: 3, label: "米尔二星", minPoints: 500000 },
+  { id: 4, label: "米尔三星", minPoints: 1000000 },
+  { id: 5, label: "米尔四星", minPoints: 5000000 },
+  { id: 6, label: "米尔五星", minPoints: 10000000 },
+  { id: 7, label: "米尔六星", minPoints: 30000000 },
+  { id: 8, label: "米尔至尊", minPoints: 50000000 },
+];
+
+export type PartnerRecord = {
+  id: string;
+  email: string;
+  uid: string;
+  username: string;
+  partnerCode: string;
+  partnerNumber: number;
+  points: number;
+  tier: PartnerTier;
+  cloudCoins: number;
+  lastSignInAt: string | null;
+  createdAt: string | null;
+  pointTransactions: LedgerEntry[];
+  coinTransactions: LedgerEntry[];
+};
+
+export type LedgerEntry = {
+  id: string;
+  type: string;
+  amount: number;
+  title: string;
+  description: string;
+  createdAt: string | null;
+};
+
+export function buildPartnerRecords(users: User[]) {
+  const partners = users
+    .filter((user) => readString(user.user_metadata?.quicksdk_uid))
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+  return partners.map((user, index) => buildPartnerRecord(user, index + 1));
+}
+
+export function buildPartnerRecord(user: User, partnerNumber: number): PartnerRecord {
+  const metadata = user.user_metadata;
+  const points = readMirPoints(metadata);
+
+  return {
+    id: user.id,
+    email: user.email ?? "",
+    uid: readString(metadata?.quicksdk_uid),
+    username: readString(metadata?.quicksdk_username) || readString(metadata?.username),
+    partnerCode: readPartnerCode(metadata, partnerNumber),
+    partnerNumber,
+    points,
+    tier: getCurrentTier(points),
+    cloudCoins: readCloudCoins(metadata),
+    lastSignInAt: user.last_sign_in_at ?? null,
+    createdAt: user.created_at ?? null,
+    pointTransactions: readPointTransactions(metadata),
+    coinTransactions: readCoinTransactions(metadata),
+  };
+}
+
+export function filterLedgerByMonth(entries: LedgerEntry[], month: string) {
+  if (!month) {
+    return entries;
+  }
+
+  return entries.filter((entry) => (entry.createdAt ?? "").startsWith(month));
+}
+
+export function readPartnerCode(metadata: UserMetadata | undefined, partnerNumber: number) {
+  return (
+    readString(metadata?.partner_code) ||
+    readString(metadata?.mir_partner_code) ||
+    readString(metadata?.partnerCode) ||
+    String(partnerNumber).padStart(6, "0")
+  );
+}
+
+export function getCurrentTier(points: number) {
+  return [...MIR_PARTNER_TIERS]
+    .reverse()
+    .find((tier) => points >= tier.minPoints) ?? MIR_PARTNER_TIERS[0];
+}
+
+function readMirPoints(metadata: UserMetadata | undefined) {
+  return readNumberFromKeys(metadata, ["mir_points", "partner_points", "total_points", "points"]);
+}
+
+function readCloudCoins(metadata: UserMetadata | undefined) {
+  return readNumberFromKeys(metadata, ["cloud_coins", "wallet_coins", "coins"]);
+}
+
+function readPointTransactions(metadata: UserMetadata | undefined): LedgerEntry[] {
+  const raw = Array.isArray(metadata?.mir_point_transactions) ? metadata?.mir_point_transactions : [];
+  const entries = raw.map((item, index) => normalizeLedgerEntry(item, index, "point"));
+
+  if (entries.length > 0) {
+    return entries;
+  }
+
+  const lastAward = readNumber(metadata?.mir_last_point_award);
+  const lastAwardedAt = readString(metadata?.mir_last_point_awarded_at);
+
+  if (lastAward > 0 || lastAwardedAt) {
+    return [
+      {
+        id: "last-point-award",
+        type: readString(metadata?.mir_last_point_source) || "point",
+        amount: lastAward,
+        title: "积分变动",
+        description: readString(metadata?.mir_last_point_source) || "最近一次积分记录",
+        createdAt: lastAwardedAt || null,
+      },
+    ];
+  }
+
+  return [];
+}
+
+function readCoinTransactions(metadata: UserMetadata | undefined): LedgerEntry[] {
+  const raw = Array.isArray(metadata?.wallet_transactions) ? metadata?.wallet_transactions : [];
+  return raw.map((item, index) => normalizeLedgerEntry(item, index, "coin"));
+}
+
+function normalizeLedgerEntry(item: unknown, index: number, fallbackType: string): LedgerEntry {
+  const source = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+  const amount =
+    readNumber(source.points) ||
+    readNumber(source.coins) ||
+    readNumber(source.amount) ||
+    readNumber(source.value);
+
+  return {
+    id: readString(source.id) || `${fallbackType}-${index}`,
+    type: readString(source.type) || readString(source.source) || fallbackType,
+    amount,
+    title: readString(source.title) || (fallbackType === "point" ? "积分记录" : "云币记录"),
+    description:
+      readString(source.description) ||
+      readString(source.orderNo) ||
+      readString(source.source) ||
+      "-",
+    createdAt: readIsoString(source.createdAt) || readIsoString(source.created_at),
+  };
+}
+
+function readNumberFromKeys(metadata: UserMetadata | undefined, keys: string[]) {
+  for (const key of keys) {
+    const value = readNumber(metadata?.[key]);
+    if (value > 0) {
+      return value;
+    }
+  }
+
+  return 0;
+}
+
+function readNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.floor(value);
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return Math.floor(parsed);
+    }
+  }
+
+  return 0;
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function readIsoString(value: unknown) {
+  const raw = readString(value);
+  if (!raw) {
+    return null;
+  }
+
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? raw : parsed.toISOString();
+}

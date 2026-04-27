@@ -4,7 +4,7 @@ import { adminPath } from "@/lib/paths";
 type Props = {
   title: string;
   description: string;
-  section: "dashboard" | "banners" | "accounts" | "posts";
+  section: "dashboard" | "banners" | "accounts" | "posts" | "partners";
   children: React.ReactNode;
 };
 
@@ -12,6 +12,7 @@ const navItems = [
   { href: "/dashboard", key: "dashboard", label: "Dashboard" },
   { href: "/banners", key: "banners", label: "Banners" },
   { href: "/accounts", key: "accounts", label: "Accounts" },
+  { href: "/partners", key: "partners", label: "合伙人" },
   { href: "/posts", key: "posts", label: "Posts" },
 ] as const;
 
