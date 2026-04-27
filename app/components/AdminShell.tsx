@@ -146,7 +146,7 @@ function formatEmail(email: string) {
   }
 
   const [name, domain] = email.split("@");
-  return [`${name}@`, domain].filter(Boolean);
+  return [name, domain ? `@${domain}` : ""].filter(Boolean);
 }
 
 function readRoleGroup(appMetadata: unknown, userMetadata: unknown) {
