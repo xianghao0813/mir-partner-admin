@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { adminPath } from "@/lib/paths";
+import { getAdminSessionUser } from "@/lib/auth";
 
 type Props = {
   title: string;
@@ -16,7 +17,10 @@ const navItems = [
   { href: "/posts", key: "posts", label: "Posts" },
 ] as const;
 
-export default function AdminShell({ title, description, section, children }: Props) {
+export default async function AdminShell({ title, description, section, children }: Props) {
+  const currentAdmin = await getAdminSessionUser();
+  const currentRoleGroup = readRoleGroup(currentAdmin?.app_metadata, currentAdmin?.user_metadata);
+
   return (
     <main style={pageStyle}>
       <div style={shellStyle}>
@@ -47,6 +51,12 @@ export default function AdminShell({ title, description, section, children }: Pr
             })}
           </nav>
 
+          <div style={currentAdminStyle}>
+            <div style={eyebrowStyle}>Signed in</div>
+            <div style={currentEmailStyle}>{currentAdmin?.email ?? "-"}</div>
+            <div style={currentRoleStyle}>{currentRoleGroup}</div>
+          </div>
+
           <form action={adminPath("/api/auth/logout")} method="post">
             <button type="submit" style={logoutButtonStyle}>
               Log out
@@ -66,6 +76,20 @@ export default function AdminShell({ title, description, section, children }: Pr
       </div>
     </main>
   );
+}
+
+function readRoleGroup(appMetadata: unknown, userMetadata: unknown) {
+  const appValue =
+    appMetadata && typeof appMetadata === "object"
+      ? (appMetadata as Record<string, unknown>).role_group
+      : undefined;
+  const userValue =
+    userMetadata && typeof userMetadata === "object"
+      ? (userMetadata as Record<string, unknown>).role_group
+      : undefined;
+  const raw = String(appValue || userValue || "content_manager").trim();
+  const allowed = new Set(["super_admin", "ops_manager", "content_manager", "analyst"]);
+  return allowed.has(raw) ? raw : "content_manager";
 }
 
 const pageStyle: React.CSSProperties = {
@@ -149,6 +173,28 @@ const logoutButtonStyle: React.CSSProperties = {
   color: "white",
   fontWeight: 700,
   cursor: "pointer",
+};
+
+const currentAdminStyle: React.CSSProperties = {
+  padding: "14px",
+  borderRadius: "16px",
+  background: "rgba(255,255,255,0.035)",
+  border: "1px solid rgba(255,255,255,0.06)",
+};
+
+const currentEmailStyle: React.CSSProperties = {
+  marginTop: "8px",
+  color: "white",
+  fontWeight: 800,
+  overflowWrap: "anywhere",
+  fontSize: "14px",
+};
+
+const currentRoleStyle: React.CSSProperties = {
+  marginTop: "6px",
+  color: "#d8b4fe",
+  fontSize: "13px",
+  fontWeight: 800,
 };
 
 const contentStyle: React.CSSProperties = {

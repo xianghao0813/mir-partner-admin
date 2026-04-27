@@ -34,7 +34,7 @@ export async function GET() {
       lastSignInAt: item.last_sign_in_at ?? null,
       emailConfirmedAt: item.email_confirmed_at ?? null,
       role: item.role ?? null,
-      roleGroup: getRoleGroup(item.app_metadata),
+      roleGroup: getRoleGroup(item.app_metadata, item.user_metadata),
       accessLevel: getAccessLevel(item.app_metadata),
       status: getStatus(item.user_metadata),
       forceLogoutAt: getForceLogoutAt(item.app_metadata),
@@ -44,7 +44,9 @@ export async function GET() {
     users,
     currentAdmin: {
       id: adminUser.id,
-      roleGroup: getRoleGroup(adminUser.app_metadata),
+      email: adminUser.email ?? "",
+      roleGroup: getRoleGroup(adminUser.app_metadata, adminUser.user_metadata),
+      accessLevel: getAccessLevel(adminUser.app_metadata),
     },
   });
 }
@@ -57,7 +59,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
   }
 
-  if (getRoleGroup(adminUser.app_metadata) !== "super_admin") {
+  if (getRoleGroup(adminUser.app_metadata, adminUser.user_metadata) !== "super_admin") {
     return NextResponse.json(
       { message: "Only Super Admin can create admin accounts." },
       { status: 403 }
@@ -121,10 +123,17 @@ export async function POST(req: NextRequest) {
   );
 }
 
-function getRoleGroup(appMetadata: unknown) {
-  if (!appMetadata || typeof appMetadata !== "object") return DEFAULT_ROLE_GROUP;
-  const value = (appMetadata as Record<string, unknown>).role_group;
-  return normalizeRoleGroup(value);
+function getRoleGroup(appMetadata: unknown, userMetadata?: unknown) {
+  const appValue =
+    appMetadata && typeof appMetadata === "object"
+      ? (appMetadata as Record<string, unknown>).role_group
+      : undefined;
+  const userValue =
+    userMetadata && typeof userMetadata === "object"
+      ? (userMetadata as Record<string, unknown>).role_group
+      : undefined;
+
+  return normalizeRoleGroup(appValue || userValue);
 }
 
 function getAccessLevel(appMetadata: unknown) {

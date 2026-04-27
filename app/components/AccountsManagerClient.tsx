@@ -29,6 +29,25 @@ const statusOptions = [
   { value: "suspended", label: "停用" },
 ];
 
+const permissionGuide = [
+  {
+    role: "Super Admin",
+    description: "可以创建、删除管理员账户，管理所有后台账号权限，并执行高风险操作。",
+  },
+  {
+    role: "Ops Manager",
+    description: "用于运营管理。适合处理内容、合伙人数据和日常运营任务。",
+  },
+  {
+    role: "Content Manager",
+    description: "用于公告、文章、首页 Banner 等内容维护。",
+  },
+  {
+    role: "Analyst",
+    description: "用于查看数据，默认不应执行创建、删除或高风险修改。",
+  },
+];
+
 export default function AccountsManagerClient() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,6 +55,8 @@ export default function AccountsManagerClient() {
   const [message, setMessage] = useState("");
   const [currentAdminRoleGroup, setCurrentAdminRoleGroup] = useState("");
   const [currentAdminId, setCurrentAdminId] = useState("");
+  const [currentAdminEmail, setCurrentAdminEmail] = useState("");
+  const [currentAdminAccessLevel, setCurrentAdminAccessLevel] = useState(0);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -67,6 +88,8 @@ export default function AccountsManagerClient() {
       setUsers(json?.users ?? []);
       setCurrentAdminRoleGroup(json?.currentAdmin?.roleGroup ?? "");
       setCurrentAdminId(json?.currentAdmin?.id ?? "");
+      setCurrentAdminEmail(json?.currentAdmin?.email ?? "");
+      setCurrentAdminAccessLevel(Number(json?.currentAdmin?.accessLevel ?? 0));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to fetch admin users");
     } finally {
@@ -270,6 +293,33 @@ export default function AccountsManagerClient() {
 
   return (
     <div style={{ display: "grid", gap: "18px" }}>
+      <section style={panelStyle}>
+        <div style={headerRowStyle}>
+          <div>
+            <div style={panelTitleStyle}>当前登录管理员</div>
+            <div style={itemMetaStyle}>{currentAdminEmail || "加载中..."}</div>
+          </div>
+          <div style={roleBadgeStyle}>
+            {currentAdminRoleGroup || "-"} · Lv.{currentAdminAccessLevel || "-"}
+          </div>
+        </div>
+
+        <div style={permissionGridStyle}>
+          {permissionGuide.map((item) => (
+            <div key={item.role} style={permissionCardStyle}>
+              <strong>{item.role}</strong>
+              <div style={itemMetaStyle}>{item.description}</div>
+            </div>
+          ))}
+        </div>
+
+        {!canManageAdminAccounts ? (
+          <div style={readonlyNoticeStyle}>
+            当前账户不是 Super Admin，因此不会显示“删除账户”按钮，也不能创建新的管理员账户。
+          </div>
+        ) : null}
+      </section>
+
       <section style={panelStyle}>
         <div style={panelTitleStyle}>创建管理员账户</div>
         {!canManageAdminAccounts ? (
@@ -560,6 +610,28 @@ const readonlyNoticeStyle: React.CSSProperties = {
   border: "1px solid rgba(255,255,255,0.07)",
   color: "#cbd5e1",
   fontSize: "14px",
+};
+
+const roleBadgeStyle: React.CSSProperties = {
+  padding: "10px 14px",
+  borderRadius: "999px",
+  background: "rgba(124,58,237,0.2)",
+  border: "1px solid rgba(192,132,252,0.28)",
+  color: "#f5d0fe",
+  fontWeight: 800,
+};
+
+const permissionGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: "10px",
+};
+
+const permissionCardStyle: React.CSSProperties = {
+  padding: "12px",
+  borderRadius: "14px",
+  background: "rgba(255,255,255,0.035)",
+  border: "1px solid rgba(255,255,255,0.06)",
 };
 
 const messageStyle: React.CSSProperties = {

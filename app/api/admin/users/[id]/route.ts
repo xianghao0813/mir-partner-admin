@@ -137,7 +137,7 @@ export async function DELETE(
     return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
   }
 
-  if (getRoleGroup(adminUser.app_metadata) !== "super_admin") {
+  if (getRoleGroup(adminUser.app_metadata, adminUser.user_metadata) !== "super_admin") {
     return NextResponse.json(
       { message: "Only Super Admin can delete admin accounts." },
       { status: 403 }
@@ -171,10 +171,17 @@ function normalizeRoleGroup(value: unknown) {
   return allowed.has(raw) ? raw : DEFAULT_ROLE_GROUP;
 }
 
-function getRoleGroup(appMetadata: unknown) {
-  if (!appMetadata || typeof appMetadata !== "object") return DEFAULT_ROLE_GROUP;
-  const value = (appMetadata as Record<string, unknown>).role_group;
-  return normalizeRoleGroup(value);
+function getRoleGroup(appMetadata: unknown, userMetadata?: unknown) {
+  const appValue =
+    appMetadata && typeof appMetadata === "object"
+      ? (appMetadata as Record<string, unknown>).role_group
+      : undefined;
+  const userValue =
+    userMetadata && typeof userMetadata === "object"
+      ? (userMetadata as Record<string, unknown>).role_group
+      : undefined;
+
+  return normalizeRoleGroup(appValue || userValue);
 }
 
 function normalizeAccessLevel(value: unknown) {
