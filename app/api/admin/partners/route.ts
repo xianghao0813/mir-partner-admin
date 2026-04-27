@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminSessionUser } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { buildPartnerRecords, filterLedgerByMonth } from "@/lib/partners";
+import {
+  appendManualPointAdjustment,
+  buildPartnerRecords,
+  filterLedgerByMonth,
+} from "@/lib/partners";
 
 export async function GET(request: NextRequest) {
   try {
@@ -47,4 +51,85 @@ export async function GET(request: NextRequest) {
       coinTransactions: filterLedgerByMonth(partner.coinTransactions, month),
     })),
   });
+}
+
+export async function PATCH(request: NextRequest) {
+  let adminUser;
+
+  try {
+    adminUser = await requireAdminSessionUser();
+  } catch {
+    return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  }
+
+  const body = await request.json().catch(() => null);
+  const userIds = Array.isArray(body?.userIds)
+    ? body.userIds.map((id: unknown) => String(id ?? "").trim()).filter(Boolean)
+    : [];
+  const mode = String(body?.mode ?? "").trim();
+  const amount = Math.floor(Number(body?.amount ?? 0));
+  const reason = String(body?.reason ?? "").trim();
+
+  if (mode !== "add" && mode !== "deduct") {
+    return NextResponse.json({ message: "请选择增加或扣减。" }, { status: 400 });
+  }
+
+  if (userIds.length === 0) {
+    return NextResponse.json({ message: "请选择至少一个合伙人。" }, { status: 400 });
+  }
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return NextResponse.json({ message: "请输入大于 0 的积分数量。" }, { status: 400 });
+  }
+
+  if (!reason) {
+    return NextResponse.json({ message: "请输入调整原因。" }, { status: 400 });
+  }
+
+  const delta = mode === "add" ? amount : -amount;
+  const results = [];
+
+  for (const userId of userIds) {
+    const { data: userData, error: fetchError } = await supabaseAdmin.auth.admin.getUserById(userId);
+
+    if (fetchError || !userData.user) {
+      results.push({
+        userId,
+        success: false,
+        message: fetchError?.message ?? "User not found",
+      });
+      continue;
+    }
+
+    const adjustment = appendManualPointAdjustment({
+      metadata: userData.user.user_metadata,
+      delta,
+      reason,
+      adminEmail: adminUser.email ?? adminUser.id,
+    });
+
+    const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+      user_metadata: adjustment.metadata,
+    });
+
+    results.push({
+      userId,
+      success: !updateError,
+      beforePoints: adjustment.beforePoints,
+      afterPoints: adjustment.afterPoints,
+      message: updateError?.message ?? null,
+    });
+  }
+
+  const failed = results.filter((result) => !result.success);
+
+  return NextResponse.json(
+    {
+      success: failed.length === 0,
+      updatedCount: results.length - failed.length,
+      failedCount: failed.length,
+      results,
+    },
+    { status: failed.length === results.length ? 500 : 200 }
+  );
 }

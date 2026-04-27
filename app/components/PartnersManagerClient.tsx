@@ -37,8 +37,14 @@ export default function PartnersManagerClient() {
   const [query, setQuery] = useState("");
   const [month, setMonth] = useState(getCurrentMonth());
   const [ledgerMode, setLedgerMode] = useState<LedgerMode | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [adjustMode, setAdjustMode] = useState<"add" | "deduct">("add");
+  const [adjustAmount, setAdjustAmount] = useState("");
+  const [adjustReason, setAdjustReason] = useState("");
+  const [adjusting, setAdjusting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
 
   const selectedPartner = useMemo(
     () => partners.find((partner) => partner.id === selectedId) ?? partners[0] ?? null,
@@ -78,6 +84,9 @@ export default function PartnersManagerClient() {
       const nextPartners = (json?.partners ?? []) as PartnerRecord[];
       setPartners(nextPartners);
       setTotalPartners(Number(json?.totalPartners ?? 0));
+      setSelectedIds((current) =>
+        current.filter((id) => nextPartners.some((partner) => partner.id === id))
+      );
       setSelectedId((current) =>
         current && nextPartners.some((partner) => partner.id === current)
           ? current
@@ -94,6 +103,68 @@ export default function PartnersManagerClient() {
   function handleSearch(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     void loadPartners({ q: query, month });
+  }
+
+  function toggleSelectedId(id: string) {
+    setSelectedIds((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
+    );
+  }
+
+  function toggleAllVisible(checked: boolean) {
+    setSelectedIds(checked ? partners.map((partner) => partner.id) : []);
+  }
+
+  async function handleAdjustPoints(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+
+    const amount = Math.floor(Number(adjustAmount));
+
+    if (selectedIds.length === 0) {
+      setError("请选择至少一个合伙人。");
+      return;
+    }
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError("请输入大于 0 的积分数量。");
+      return;
+    }
+
+    if (!adjustReason.trim()) {
+      setError("请输入调整原因。");
+      return;
+    }
+
+    setAdjusting(true);
+
+    try {
+      const res = await fetch(adminPath("/api/admin/partners"), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userIds: selectedIds,
+          mode: adjustMode,
+          amount,
+          reason: adjustReason,
+        }),
+      });
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(json?.message ?? "积分调整失败。");
+      }
+
+      setMessage(`积分调整完成：成功 ${json?.updatedCount ?? 0} 个，失败 ${json?.failedCount ?? 0} 个。`);
+      setAdjustAmount("");
+      setAdjustReason("");
+      await loadPartners({ q: query, month });
+    } catch (adjustError) {
+      setError(adjustError instanceof Error ? adjustError.message : "积分调整失败。");
+    } finally {
+      setAdjusting(false);
+    }
   }
 
   const activeLedger =
@@ -136,6 +207,57 @@ export default function PartnersManagerClient() {
         </div>
 
         {error && <div style={errorStyle}>{error}</div>}
+        {message && <div style={successStyle}>{message}</div>}
+        <form onSubmit={handleAdjustPoints} style={adjustPanelStyle}>
+          <div style={adjustHeaderStyle}>
+            <div>
+              <div style={eyebrowStyle}>Manual Points</div>
+              <strong>管理员积分调整</strong>
+              <div style={mutedTextStyle}>已选择 {selectedIds.length} 个合伙人</div>
+            </div>
+            <div style={modeGroupStyle}>
+              <button
+                type="button"
+                onClick={() => setAdjustMode("add")}
+                style={{
+                  ...modeButtonStyle,
+                  ...(adjustMode === "add" ? activeModeButtonStyle : null),
+                }}
+              >
+                增加
+              </button>
+              <button
+                type="button"
+                onClick={() => setAdjustMode("deduct")}
+                style={{
+                  ...modeButtonStyle,
+                  ...(adjustMode === "deduct" ? activeModeButtonStyle : null),
+                }}
+              >
+                扣减
+              </button>
+            </div>
+          </div>
+          <div style={adjustFormGridStyle}>
+            <input
+              type="number"
+              min="1"
+              value={adjustAmount}
+              onChange={(event) => setAdjustAmount(event.target.value)}
+              placeholder="积分数量"
+              style={compactInputStyle}
+            />
+            <input
+              value={adjustReason}
+              onChange={(event) => setAdjustReason(event.target.value)}
+              placeholder="调整原因"
+              style={compactInputStyle}
+            />
+            <button type="submit" disabled={adjusting} style={primaryButtonStyle}>
+              {adjusting ? "处理中..." : "提交调整"}
+            </button>
+          </div>
+        </form>
         {loading ? (
           <div style={emptyStyle}>加载合伙人数据...</div>
         ) : partners.length === 0 ? (
@@ -145,6 +267,14 @@ export default function PartnersManagerClient() {
             <table style={tableStyle}>
               <thead>
                 <tr>
+                  <th style={thStyle}>
+                    <input
+                      type="checkbox"
+                      checked={partners.length > 0 && selectedIds.length === partners.length}
+                      onChange={(event) => toggleAllVisible(event.target.checked)}
+                      aria-label="选择全部可见合伙人"
+                    />
+                  </th>
                   <th style={thStyle}>合伙人编码</th>
                   <th style={thStyle}>UID</th>
                   <th style={thStyle}>账号</th>
@@ -169,6 +299,14 @@ export default function PartnersManagerClient() {
                         ...(active ? activeTrStyle : null),
                       }}
                     >
+                      <td style={tdStyle} onClick={(event) => event.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.includes(partner.id)}
+                          onChange={() => toggleSelectedId(partner.id)}
+                          aria-label={`选择 ${partner.partnerCode}`}
+                        />
+                      </td>
                       <td style={tdStrongStyle}>{partner.partnerCode}</td>
                       <td style={tdStyle}>{partner.uid}</td>
                       <td style={tdStyle}>{partner.username || partner.email || "-"}</td>
@@ -232,7 +370,7 @@ export default function PartnersManagerClient() {
                           <div style={mutedTextStyle}>{entry.description}</div>
                           <div style={dateTextStyle}>{formatDate(entry.createdAt)}</div>
                         </div>
-                        <span style={amountStyle}>
+                        <span style={entry.amount < 0 ? deductAmountStyle : amountStyle}>
                           {entry.amount > 0 ? "+" : ""}
                           {entry.amount.toLocaleString()}
                         </span>
@@ -328,6 +466,12 @@ const monthInputStyle: React.CSSProperties = {
   ...inputStyle,
   minWidth: "150px",
   colorScheme: "dark",
+};
+
+const compactInputStyle: React.CSSProperties = {
+  ...inputStyle,
+  minWidth: 0,
+  width: "100%",
 };
 
 const primaryButtonStyle: React.CSSProperties = {
@@ -497,6 +641,11 @@ const amountStyle: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
+const deductAmountStyle: React.CSSProperties = {
+  ...amountStyle,
+  color: "#fca5a5",
+};
+
 const dateTextStyle: React.CSSProperties = {
   color: "#71717a",
   fontSize: "12px",
@@ -518,4 +667,58 @@ const errorStyle: React.CSSProperties = {
   background: "rgba(239,68,68,0.12)",
   border: "1px solid rgba(248,113,113,0.2)",
   marginBottom: "12px",
+};
+
+const successStyle: React.CSSProperties = {
+  padding: "12px",
+  borderRadius: "12px",
+  color: "#bbf7d0",
+  background: "rgba(34,197,94,0.12)",
+  border: "1px solid rgba(74,222,128,0.2)",
+  marginBottom: "12px",
+};
+
+const adjustPanelStyle: React.CSSProperties = {
+  padding: "14px",
+  borderRadius: "18px",
+  background: "rgba(255,255,255,0.035)",
+  border: "1px solid rgba(255,255,255,0.07)",
+  marginBottom: "16px",
+  display: "grid",
+  gap: "12px",
+};
+
+const adjustHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "12px",
+  flexWrap: "wrap",
+};
+
+const modeGroupStyle: React.CSSProperties = {
+  display: "flex",
+  gap: "8px",
+};
+
+const modeButtonStyle: React.CSSProperties = {
+  border: "1px solid rgba(255,255,255,0.08)",
+  borderRadius: "12px",
+  padding: "9px 13px",
+  background: "rgba(255,255,255,0.04)",
+  color: "#d1d5db",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+const activeModeButtonStyle: React.CSSProperties = {
+  background: "rgba(124,58,237,0.24)",
+  border: "1px solid rgba(192,132,252,0.35)",
+  color: "white",
+};
+
+const adjustFormGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "150px minmax(220px, 1fr) auto",
+  gap: "10px",
 };

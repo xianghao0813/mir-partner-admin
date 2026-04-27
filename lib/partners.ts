@@ -94,6 +94,56 @@ export function getCurrentTier(points: number) {
     .find((tier) => points >= tier.minPoints) ?? MIR_PARTNER_TIERS[0];
 }
 
+export function readPartnerPoints(metadata: UserMetadata | undefined) {
+  return readMirPoints(metadata);
+}
+
+export function appendManualPointAdjustment({
+  metadata,
+  delta,
+  reason,
+  adminEmail,
+  now = new Date(),
+}: {
+  metadata: UserMetadata | undefined;
+  delta: number;
+  reason: string;
+  adminEmail: string;
+  now?: Date;
+}) {
+  const beforePoints = readMirPoints(metadata);
+  const afterPoints = Math.max(0, beforePoints + delta);
+  const transaction = {
+    id: `manual-${now.getTime()}-${Math.abs(delta)}`,
+    type: delta >= 0 ? "manual_add" : "manual_deduct",
+    source: "admin_manual_adjustment",
+    points: delta,
+    title: delta >= 0 ? "管理员增加积分" : "管理员扣减积分",
+    description: reason || "管理员手动调整",
+    adminEmail,
+    beforePoints,
+    afterPoints,
+    createdAt: now.toISOString(),
+  };
+  const currentTransactions = Array.isArray(metadata?.mir_point_transactions)
+    ? metadata.mir_point_transactions
+    : [];
+
+  return {
+    metadata: {
+      ...(metadata ?? {}),
+      mir_points: afterPoints,
+      mir_last_tier_id: getCurrentTier(afterPoints).id,
+      mir_last_point_source: "admin_manual_adjustment",
+      mir_last_point_award: delta,
+      mir_last_point_awarded_at: now.toISOString(),
+      mir_point_transactions: [transaction, ...currentTransactions].slice(0, 500),
+    },
+    beforePoints,
+    afterPoints,
+  };
+}
+
 function readMirPoints(metadata: UserMetadata | undefined) {
   return readNumberFromKeys(metadata, ["mir_points", "partner_points", "total_points", "points"]);
 }

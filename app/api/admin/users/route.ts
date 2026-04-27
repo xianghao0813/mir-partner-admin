@@ -7,8 +7,9 @@ const DEFAULT_ROLE_GROUP = "content_manager";
 const DEFAULT_STATUS = "active";
 
 export async function GET() {
+  let adminUser;
   try {
-    await requireAdminSessionUser();
+    adminUser = await requireAdminSessionUser();
   } catch {
     return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
   }
@@ -39,14 +40,28 @@ export async function GET() {
       forceLogoutAt: getForceLogoutAt(item.app_metadata),
     })) ?? [];
 
-  return NextResponse.json({ users });
+  return NextResponse.json({
+    users,
+    currentAdmin: {
+      id: adminUser.id,
+      roleGroup: getRoleGroup(adminUser.app_metadata),
+    },
+  });
 }
 
 export async function POST(req: NextRequest) {
+  let adminUser;
   try {
-    await requireAdminSessionUser();
+    adminUser = await requireAdminSessionUser();
   } catch {
     return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  }
+
+  if (getRoleGroup(adminUser.app_metadata) !== "super_admin") {
+    return NextResponse.json(
+      { message: "Only Super Admin can create admin accounts." },
+      { status: 403 }
+    );
   }
 
   const body = await req.json();

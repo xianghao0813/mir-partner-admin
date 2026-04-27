@@ -34,6 +34,8 @@ export default function AccountsManagerClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [currentAdminRoleGroup, setCurrentAdminRoleGroup] = useState("");
+  const [currentAdminId, setCurrentAdminId] = useState("");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -44,6 +46,7 @@ export default function AccountsManagerClient() {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [actionId, setActionId] = useState<string | null>(null);
   const [temporaryPasswords, setTemporaryPasswords] = useState<Record<string, string>>({});
+  const canManageAdminAccounts = currentAdminRoleGroup === "super_admin";
 
   useEffect(() => {
     void loadUsers();
@@ -62,6 +65,8 @@ export default function AccountsManagerClient() {
       }
 
       setUsers(json?.users ?? []);
+      setCurrentAdminRoleGroup(json?.currentAdmin?.roleGroup ?? "");
+      setCurrentAdminId(json?.currentAdmin?.id ?? "");
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to fetch admin users");
     } finally {
@@ -73,6 +78,11 @@ export default function AccountsManagerClient() {
     event.preventDefault();
     setError("");
     setMessage("");
+
+    if (!canManageAdminAccounts) {
+      setError("只有 Super Admin 可以创建管理员账户。");
+      return;
+    }
 
     if (!email.trim() || !password.trim()) {
       setError("请输入管理员邮箱和初始密码。");
@@ -216,16 +226,62 @@ export default function AccountsManagerClient() {
     }
   }
 
+  async function handleDeleteUser(user: AdminUser) {
+    if (!canManageAdminAccounts) {
+      setError("只有 Super Admin 可以删除管理员账户。");
+      setMessage("");
+      return;
+    }
+
+    if (user.id === currentAdminId) {
+      setError("不能删除当前登录中的管理员账户。");
+      setMessage("");
+      return;
+    }
+
+    const confirmed = window.confirm(`确定删除管理员账户 ${user.email || "无邮箱"} 吗？此操作不可恢复。`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    setActionId(user.id);
+    setError("");
+    setMessage("");
+
+    try {
+      const res = await fetch(adminPath(`/api/admin/users/${user.id}`), {
+        method: "DELETE",
+      });
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(json?.message ?? "Failed to delete admin account");
+      }
+
+      setMessage(`管理员账户已删除：${user.email}`);
+      await loadUsers();
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete admin account");
+    } finally {
+      setActionId(null);
+    }
+  }
+
   return (
     <div style={{ display: "grid", gap: "18px" }}>
       <section style={panelStyle}>
         <div style={panelTitleStyle}>创建管理员账户</div>
+        {!canManageAdminAccounts ? (
+          <div style={readonlyNoticeStyle}>只有 Super Admin 可以创建新的管理员账户。</div>
+        ) : null}
         <form onSubmit={handleSubmit} style={{ display: "grid", gap: "12px" }}>
           <input
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="管理员邮箱"
             style={inputStyle}
+            disabled={!canManageAdminAccounts}
           />
           <input
             type="password"
@@ -233,9 +289,15 @@ export default function AccountsManagerClient() {
             onChange={(e) => setPassword(e.target.value)}
             placeholder="初始密码"
             style={inputStyle}
+            disabled={!canManageAdminAccounts}
           />
           <div style={threeColStyle}>
-            <select value={roleGroup} onChange={(e) => setRoleGroup(e.target.value)} style={inputStyle}>
+            <select
+              value={roleGroup}
+              onChange={(e) => setRoleGroup(e.target.value)}
+              style={inputStyle}
+              disabled={!canManageAdminAccounts}
+            >
               {roleGroupOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
@@ -246,6 +308,7 @@ export default function AccountsManagerClient() {
               value={String(accessLevel)}
               onChange={(e) => setAccessLevel(Number(e.target.value))}
               style={inputStyle}
+              disabled={!canManageAdminAccounts}
             >
               {[1, 2, 3, 4, 5].map((level) => (
                 <option key={level} value={level}>
@@ -253,7 +316,12 @@ export default function AccountsManagerClient() {
                 </option>
               ))}
             </select>
-            <select value={status} onChange={(e) => setStatus(e.target.value)} style={inputStyle}>
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              style={inputStyle}
+              disabled={!canManageAdminAccounts}
+            >
               {statusOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
@@ -263,7 +331,7 @@ export default function AccountsManagerClient() {
           </div>
           {error ? <div style={errorStyle}>{error}</div> : null}
           {message ? <div style={messageStyle}>{message}</div> : null}
-          <button type="submit" disabled={creating} style={buttonStyle}>
+          <button type="submit" disabled={creating || !canManageAdminAccounts} style={buttonStyle}>
             {creating ? "创建中..." : "创建账户"}
           </button>
         </form>
@@ -367,6 +435,17 @@ export default function AccountsManagerClient() {
                     >
                       {actionId === user.id ? "处理中..." : "强制下线"}
                     </button>
+                    {canManageAdminAccounts ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteUser(user)}
+                        style={deleteButtonStyle}
+                        disabled={actionId === user.id || user.id === currentAdminId}
+                        title={user.id === currentAdminId ? "不能删除当前登录账户" : "删除管理员账户"}
+                      >
+                        {actionId === user.id ? "处理中..." : "删除账户"}
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               </article>
@@ -431,7 +510,7 @@ const threeColStyle: React.CSSProperties = {
 
 const securityGridStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "minmax(220px, 1fr) auto auto",
+  gridTemplateColumns: "minmax(220px, 1fr) repeat(3, auto)",
   gap: "10px",
   alignItems: "center",
 };
@@ -464,6 +543,23 @@ const dangerButtonStyle: React.CSSProperties = {
   color: "#fecaca",
   fontWeight: 700,
   cursor: "pointer",
+};
+
+const deleteButtonStyle: React.CSSProperties = {
+  ...dangerButtonStyle,
+  background: "rgba(185,28,28,0.38)",
+  border: "1px solid rgba(248,113,113,0.42)",
+};
+
+const readonlyNoticeStyle: React.CSSProperties = {
+  marginTop: "10px",
+  marginBottom: "12px",
+  padding: "12px 14px",
+  borderRadius: "14px",
+  background: "rgba(255,255,255,0.04)",
+  border: "1px solid rgba(255,255,255,0.07)",
+  color: "#cbd5e1",
+  fontSize: "14px",
 };
 
 const messageStyle: React.CSSProperties = {
