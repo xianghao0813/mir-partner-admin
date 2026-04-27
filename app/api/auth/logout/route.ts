@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { adminPath } from "@/lib/paths";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
   await supabase.auth.signOut();
-  return NextResponse.redirect(new URL(adminPath("/login"), request.url));
+
+  const requestUrl = new URL(request.url);
+  const loginPath = requestUrl.pathname.startsWith("/admin/")
+    ? "/admin/login"
+    : "/login";
+
+  return NextResponse.redirect(new URL(loginPath, request.url));
 }
