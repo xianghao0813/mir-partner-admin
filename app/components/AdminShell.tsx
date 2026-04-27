@@ -6,13 +6,19 @@ type Props = {
   title: string;
   description: string;
   section: "dashboard" | "banners" | "accounts" | "posts" | "partners";
+  partnerSubsection?: "list" | "points" | "test-order";
   children: React.ReactNode;
 };
 
 const navItems = [
   { href: "/dashboard", key: "dashboard", label: "Dashboard" },
   { href: "/accounts", key: "accounts", label: "Accounts" },
-  { href: "/partners", key: "partners", label: "MIR Partner" },
+] as const;
+
+const partnerNavItems = [
+  { href: "/partners?tab=list", key: "list", label: "Partner List" },
+  { href: "/partners?tab=points", key: "points", label: "Point Adjustment" },
+  { href: "/partners?tab=test-order", key: "test-order", label: "Test Orders" },
 ] as const;
 
 const contentNavItems = [
@@ -20,7 +26,13 @@ const contentNavItems = [
   { href: "/posts", key: "posts", label: "Posts" },
 ] as const;
 
-export default async function AdminShell({ title, description, section, children }: Props) {
+export default async function AdminShell({
+  title,
+  description,
+  section,
+  partnerSubsection = "list",
+  children,
+}: Props) {
   const currentAdmin = await getAdminSessionUser();
   const currentRoleGroup = readRoleGroup(currentAdmin?.app_metadata, currentAdmin?.user_metadata);
 
@@ -52,6 +64,26 @@ export default async function AdminShell({ title, description, section, children
                 </Link>
               );
             })}
+
+            <div style={navGroupStyle}>
+              <div style={navGroupTitleStyle}>MIR Partner</div>
+              <div style={subNavStyle}>
+                {partnerNavItems.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    style={{
+                      ...subNavItemStyle,
+                      ...(section === "partners" && item.key === partnerSubsection
+                        ? activeNavItemStyle
+                        : null),
+                    }}
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+              </div>
+            </div>
 
             <div style={navGroupStyle}>
               <div style={navGroupTitleStyle}>Content</div>

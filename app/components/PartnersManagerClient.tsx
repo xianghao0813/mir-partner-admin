@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { adminPath } from "@/lib/paths";
 
 type LedgerEntry = {
@@ -29,8 +30,17 @@ type PartnerRecord = {
 };
 
 type LedgerMode = "points" | "coins";
+type PartnerTab = "list" | "points" | "test-order";
+
+const partnerTabs: { key: PartnerTab; label: string }[] = [
+  { key: "list", label: "파트너 목록" },
+  { key: "points", label: "포인트 조정" },
+  { key: "test-order", label: "테스트 주문" },
+];
 
 export default function PartnersManagerClient() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [partners, setPartners] = useState<PartnerRecord[]>([]);
   const [totalPartners, setTotalPartners] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -49,6 +59,7 @@ export default function PartnersManagerClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const activeTab = normalizeTab(searchParams.get("tab"));
 
   const selectedPartner = useMemo(
     () => partners.find((partner) => partner.id === selectedId) ?? partners[0] ?? null,
@@ -58,6 +69,10 @@ export default function PartnersManagerClient() {
   useEffect(() => {
     void loadPartners();
   }, []);
+
+  function setActiveTab(tab: PartnerTab) {
+    router.push(`/partners?tab=${tab}`, { scroll: false });
+  }
 
   async function loadPartners(params?: { q?: string; month?: string }) {
     setLoading(true);
@@ -232,6 +247,23 @@ export default function PartnersManagerClient() {
         : [];
 
   return (
+    <>
+    <div style={tabsStyle}>
+      {partnerTabs.map((tab) => (
+        <button
+          key={tab.key}
+          type="button"
+          onClick={() => setActiveTab(tab.key)}
+          style={{
+            ...tabButtonStyle,
+            ...(activeTab === tab.key ? activeTabButtonStyle : null),
+          }}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+
     <div style={pageGridStyle}>
       <section style={panelStyle}>
         <div style={toolbarStyle}>
@@ -265,6 +297,7 @@ export default function PartnersManagerClient() {
 
         {error && <div style={errorStyle}>{error}</div>}
         {message && <div style={successStyle}>{message}</div>}
+        {activeTab === "points" ? (
         <form onSubmit={handleAdjustPoints} style={adjustPanelStyle}>
           <div style={adjustHeaderStyle}>
             <div>
@@ -315,6 +348,7 @@ export default function PartnersManagerClient() {
             </button>
           </div>
         </form>
+        ) : null}
         {loading ? (
           <div style={emptyStyle}>加载合伙人数据...</div>
         ) : partners.length === 0 ? (
@@ -409,6 +443,7 @@ export default function PartnersManagerClient() {
               </button>
             </div>
 
+            {activeTab === "test-order" ? (
             <form onSubmit={handleCreateTestOrder} style={testOrderPanelStyle}>
               <div>
                 <div style={eyebrowStyle}>Test Order</div>
@@ -441,41 +476,63 @@ export default function PartnersManagerClient() {
                 {creatingTestOrder ? "创建中..." : "创建测试订单"}
               </button>
             </form>
+            ) : null}
 
-            {ledgerMode && (
-              <div style={ledgerPanelStyle}>
-                <div style={ledgerHeaderStyle}>
-                  <strong>{ledgerMode === "points" ? "积分明细" : "云币明细"}</strong>
-                  <span style={mutedTextStyle}>{month || "全部月份"}</span>
-                </div>
-
-                {activeLedger.length === 0 ? (
-                  <div style={emptyStyle}>该月份暂无明细。</div>
-                ) : (
-                  <div style={ledgerListStyle}>
-                    {activeLedger.map((entry) => (
-                      <div key={entry.id} style={ledgerItemStyle}>
-                        <div>
-                          <strong>{entry.title}</strong>
-                          <div style={mutedTextStyle}>{entry.description}</div>
-                          <div style={dateTextStyle}>{formatDate(entry.createdAt)}</div>
-                        </div>
-                        <span style={entry.amount < 0 ? deductAmountStyle : amountStyle}>
-                          {entry.amount > 0 ? "+" : ""}
-                          {entry.amount.toLocaleString()}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
           </>
         ) : (
           <div style={emptyStyle}>请选择一个合伙人。</div>
         )}
       </aside>
     </div>
+    {ledgerMode ? (
+      <div style={modalOverlayStyle} onClick={() => setLedgerMode(null)}>
+        <div style={modalStyle} onClick={(event) => event.stopPropagation()}>
+          <div style={modalHeaderStyle}>
+            <div>
+              <div style={eyebrowStyle}>{selectedPartner?.partnerCode ?? "-"}</div>
+              <h3 style={modalTitleStyle}>{ledgerMode === "points" ? "积分明细" : "云币明细"}</h3>
+            </div>
+            <button type="button" onClick={() => setLedgerMode(null)} style={closeButtonStyle}>
+              关闭
+            </button>
+          </div>
+
+          <div style={modalToolbarStyle}>
+            <input
+              type="month"
+              value={month}
+              onChange={(event) => {
+                setMonth(event.target.value);
+                void loadPartners({ q: query, month: event.target.value });
+              }}
+              style={monthInputStyle}
+            />
+            <span style={mutedTextStyle}>{month || "全部月份"}</span>
+          </div>
+
+          {activeLedger.length === 0 ? (
+            <div style={emptyStyle}>该月份暂无明细。</div>
+          ) : (
+            <div style={ledgerListStyle}>
+              {activeLedger.map((entry) => (
+                <div key={entry.id} style={ledgerItemStyle}>
+                  <div>
+                    <strong>{entry.title}</strong>
+                    <div style={mutedTextStyle}>{entry.description}</div>
+                    <div style={dateTextStyle}>{formatDate(entry.createdAt)}</div>
+                  </div>
+                  <span style={entry.amount < 0 ? deductAmountStyle : amountStyle}>
+                    {entry.amount > 0 ? "+" : ""}
+                    {entry.amount.toLocaleString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    ) : null}
+    </>
   );
 }
 
@@ -511,6 +568,33 @@ function formatDate(value: string | null) {
     minute: "2-digit",
   });
 }
+
+function normalizeTab(value: string | null): PartnerTab {
+  return value === "points" || value === "test-order" ? value : "list";
+}
+
+const tabsStyle: React.CSSProperties = {
+  display: "flex",
+  gap: "10px",
+  flexWrap: "wrap",
+  marginBottom: "16px",
+};
+
+const tabButtonStyle: React.CSSProperties = {
+  border: "1px solid rgba(255,255,255,0.08)",
+  borderRadius: "14px",
+  padding: "12px 16px",
+  background: "rgba(255,255,255,0.04)",
+  color: "#d1d5db",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+const activeTabButtonStyle: React.CSSProperties = {
+  background: "linear-gradient(90deg, rgba(124,58,237,0.24), rgba(168,85,247,0.18))",
+  border: "1px solid rgba(192,132,252,0.3)",
+  color: "white",
+};
 
 const pageGridStyle: React.CSSProperties = {
   display: "grid",
@@ -708,10 +792,63 @@ const ledgerHeaderStyle: React.CSSProperties = {
   marginBottom: "12px",
 };
 
+const modalOverlayStyle: React.CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  zIndex: 50,
+  display: "grid",
+  placeItems: "center",
+  padding: "24px",
+  background: "rgba(0,0,0,0.62)",
+  backdropFilter: "blur(8px)",
+};
+
+const modalStyle: React.CSSProperties = {
+  width: "min(760px, 100%)",
+  maxHeight: "82vh",
+  overflow: "hidden",
+  borderRadius: "22px",
+  background: "rgba(16,16,24,0.96)",
+  border: "1px solid rgba(255,255,255,0.1)",
+  boxShadow: "0 24px 60px rgba(0,0,0,0.45)",
+  padding: "20px",
+};
+
+const modalHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "flex-start",
+  justifyContent: "space-between",
+  gap: "16px",
+  marginBottom: "14px",
+};
+
+const modalTitleStyle: React.CSSProperties = {
+  margin: "8px 0 0",
+  fontSize: "26px",
+};
+
+const modalToolbarStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "10px",
+  flexWrap: "wrap",
+  marginBottom: "14px",
+};
+
+const closeButtonStyle: React.CSSProperties = {
+  border: "1px solid rgba(255,255,255,0.08)",
+  borderRadius: "12px",
+  padding: "10px 13px",
+  background: "rgba(255,255,255,0.05)",
+  color: "white",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
 const ledgerListStyle: React.CSSProperties = {
   display: "grid",
   gap: "10px",
-  maxHeight: "360px",
+  maxHeight: "56vh",
   overflowY: "auto",
 };
 
