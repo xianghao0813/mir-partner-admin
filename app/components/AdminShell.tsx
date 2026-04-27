@@ -11,9 +11,12 @@ type Props = {
 
 const navItems = [
   { href: "/dashboard", key: "dashboard", label: "Dashboard" },
-  { href: "/banners", key: "banners", label: "Banners" },
   { href: "/accounts", key: "accounts", label: "Accounts" },
-  { href: "/partners", key: "partners", label: "合伙人" },
+  { href: "/partners", key: "partners", label: "MIR Partner" },
+] as const;
+
+const contentNavItems = [
+  { href: "/banners", key: "banners", label: "Banners" },
   { href: "/posts", key: "posts", label: "Posts" },
 ] as const;
 
@@ -49,11 +52,38 @@ export default async function AdminShell({ title, description, section, children
                 </Link>
               );
             })}
+
+            <div style={navGroupStyle}>
+              <div style={navGroupTitleStyle}>Content</div>
+              <div style={subNavStyle}>
+                {contentNavItems.map((item) => {
+                  const active = item.key === section;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      style={{
+                        ...subNavItemStyle,
+                        ...(active ? activeNavItemStyle : null),
+                      }}
+                    >
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
           </nav>
 
           <div style={currentAdminStyle}>
             <div style={eyebrowStyle}>Signed in</div>
-            <div style={currentEmailStyle}>{currentAdmin?.email ?? "-"}</div>
+            <div style={currentEmailStyle}>
+              {formatEmail(currentAdmin?.email ?? "-").map((part, index) => (
+                <span key={`${part}-${index}`} style={emailLineStyle}>
+                  {part}
+                </span>
+              ))}
+            </div>
             <div style={currentRoleStyle}>{currentRoleGroup}</div>
           </div>
 
@@ -76,6 +106,15 @@ export default async function AdminShell({ title, description, section, children
       </div>
     </main>
   );
+}
+
+function formatEmail(email: string) {
+  if (!email.includes("@")) {
+    return [email];
+  }
+
+  const [name, domain] = email.split("@");
+  return [`${name}@`, domain].filter(Boolean);
 }
 
 function readRoleGroup(appMetadata: unknown, userMetadata: unknown) {
@@ -146,6 +185,29 @@ const navStyle: React.CSSProperties = {
   gap: "8px",
 };
 
+const navGroupStyle: React.CSSProperties = {
+  display: "grid",
+  gap: "8px",
+  paddingTop: "10px",
+  marginTop: "4px",
+  borderTop: "1px solid rgba(255,255,255,0.06)",
+};
+
+const navGroupTitleStyle: React.CSSProperties = {
+  padding: "0 4px",
+  color: "#9ca3af",
+  fontSize: "12px",
+  fontWeight: 800,
+  letterSpacing: "0.1em",
+  textTransform: "uppercase",
+};
+
+const subNavStyle: React.CSSProperties = {
+  display: "grid",
+  gap: "6px",
+  paddingLeft: "12px",
+};
+
 const navItemStyle: React.CSSProperties = {
   display: "block",
   padding: "12px 14px",
@@ -162,6 +224,13 @@ const activeNavItemStyle: React.CSSProperties = {
   border: "1px solid rgba(192,132,252,0.28)",
   color: "white",
   boxShadow: "0 0 18px rgba(124,58,237,0.16)",
+};
+
+const subNavItemStyle: React.CSSProperties = {
+  ...navItemStyle,
+  padding: "10px 12px",
+  fontSize: "14px",
+  background: "rgba(255,255,255,0.025)",
 };
 
 const logoutButtonStyle: React.CSSProperties = {
@@ -186,8 +255,13 @@ const currentEmailStyle: React.CSSProperties = {
   marginTop: "8px",
   color: "white",
   fontWeight: 800,
-  overflowWrap: "anywhere",
   fontSize: "14px",
+};
+
+const emailLineStyle: React.CSSProperties = {
+  display: "block",
+  overflowWrap: "anywhere",
+  lineHeight: 1.45,
 };
 
 const currentRoleStyle: React.CSSProperties = {

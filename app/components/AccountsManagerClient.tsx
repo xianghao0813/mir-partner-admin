@@ -67,6 +67,7 @@ export default function AccountsManagerClient() {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [actionId, setActionId] = useState<string | null>(null);
   const [temporaryPasswords, setTemporaryPasswords] = useState<Record<string, string>>({});
+  const [activeSubsection, setActiveSubsection] = useState<"create" | "manage">("manage");
   const canManageAdminAccounts = currentAdminRoleGroup === "super_admin";
 
   useEffect(() => {
@@ -320,6 +321,30 @@ export default function AccountsManagerClient() {
         ) : null}
       </section>
 
+      <div style={subNavWrapStyle}>
+        <button
+          type="button"
+          onClick={() => setActiveSubsection("create")}
+          style={{
+            ...subNavButtonStyle,
+            ...(activeSubsection === "create" ? activeSubNavButtonStyle : null),
+          }}
+        >
+          管理员创建
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveSubsection("manage")}
+          style={{
+            ...subNavButtonStyle,
+            ...(activeSubsection === "manage" ? activeSubNavButtonStyle : null),
+          }}
+        >
+          账户管理
+        </button>
+      </div>
+
+      {activeSubsection === "create" ? (
       <section style={panelStyle}>
         <div style={panelTitleStyle}>创建管理员账户</div>
         {!canManageAdminAccounts ? (
@@ -386,7 +411,9 @@ export default function AccountsManagerClient() {
           </button>
         </form>
       </section>
+      ) : null}
 
+      {activeSubsection === "manage" ? (
       <section style={panelStyle}>
         <div style={headerRowStyle}>
           <div style={panelTitleStyle}>账户与权限</div>
@@ -503,6 +530,7 @@ export default function AccountsManagerClient() {
           </div>
         )}
       </section>
+      ) : null}
     </div>
   );
 }
@@ -610,6 +638,28 @@ const readonlyNoticeStyle: React.CSSProperties = {
   border: "1px solid rgba(255,255,255,0.07)",
   color: "#cbd5e1",
   fontSize: "14px",
+};
+
+const subNavWrapStyle: React.CSSProperties = {
+  display: "flex",
+  gap: "10px",
+  flexWrap: "wrap",
+};
+
+const subNavButtonStyle: React.CSSProperties = {
+  border: "1px solid rgba(255,255,255,0.08)",
+  borderRadius: "14px",
+  padding: "12px 16px",
+  background: "rgba(255,255,255,0.04)",
+  color: "#d1d5db",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+const activeSubNavButtonStyle: React.CSSProperties = {
+  background: "linear-gradient(90deg, rgba(124,58,237,0.24), rgba(168,85,247,0.18))",
+  border: "1px solid rgba(192,132,252,0.3)",
+  color: "white",
 };
 
 const roleBadgeStyle: React.CSSProperties = {
