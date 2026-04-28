@@ -32,6 +32,8 @@ type PartnerRecord = {
 type LedgerMode = "points" | "coins";
 type PartnerTab = "list" | "points" | "test-order";
 
+type ThinkingDataEventRow = Record<string, unknown>;
+
 const partnerTabs: { key: PartnerTab; label: string }[] = [
   { key: "list", label: "파트너 목록" },
   { key: "points", label: "포인트 조정" },
@@ -47,6 +49,11 @@ export default function PartnersManagerClient() {
   const [query, setQuery] = useState("");
   const [month, setMonth] = useState(getCurrentMonth());
   const [ledgerMode, setLedgerMode] = useState<LedgerMode | null>(null);
+  const [thinkingDataOpen, setThinkingDataOpen] = useState(false);
+  const [thinkingDataRows, setThinkingDataRows] = useState<ThinkingDataEventRow[]>([]);
+  const [thinkingDataHeaders, setThinkingDataHeaders] = useState<string[]>([]);
+  const [thinkingDataLoading, setThinkingDataLoading] = useState(false);
+  const [thinkingDataError, setThinkingDataError] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [adjustMode, setAdjustMode] = useState<"add" | "deduct">("add");
   const [adjustAmount, setAdjustAmount] = useState("");
@@ -246,6 +253,44 @@ export default function PartnersManagerClient() {
         ? selectedPartner?.coinTransactions ?? []
         : [];
 
+  async function loadThinkingDataEvents() {
+    if (!selectedPartner?.uid) {
+      setThinkingDataError("UID is required.");
+      return;
+    }
+
+    setThinkingDataOpen(true);
+    setThinkingDataLoading(true);
+    setThinkingDataError("");
+
+    try {
+      const search = new URLSearchParams({
+        uid: selectedPartner.uid,
+        month,
+        limit: "100",
+      });
+      const res = await fetch(adminPath(`/api/admin/thinkingdata/events?${search.toString()}`), {
+        cache: "no-store",
+      });
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(json?.message ?? "ThinkingData query failed.");
+      }
+
+      setThinkingDataHeaders(Array.isArray(json?.headers) ? json.headers : []);
+      setThinkingDataRows(Array.isArray(json?.rows) ? json.rows : []);
+    } catch (loadError) {
+      setThinkingDataError(
+        loadError instanceof Error ? loadError.message : "ThinkingData query failed."
+      );
+      setThinkingDataHeaders([]);
+      setThinkingDataRows([]);
+    } finally {
+      setThinkingDataLoading(false);
+    }
+  }
+
   return (
     <>
     <div style={tabsStyle}>
@@ -441,6 +486,9 @@ export default function PartnersManagerClient() {
               <button type="button" onClick={() => setLedgerMode("coins")} style={secondaryButtonStyle}>
                 查看云币明细
               </button>
+              <button type="button" onClick={loadThinkingDataEvents} style={secondaryButtonStyle}>
+                ThinkingData 记录
+              </button>
             </div>
 
             {activeTab === "test-order" ? (
@@ -484,6 +532,55 @@ export default function PartnersManagerClient() {
         )}
       </aside>
     </div>
+    {thinkingDataOpen ? (
+      <div style={modalOverlayStyle} onClick={() => setThinkingDataOpen(false)}>
+        <div style={modalStyle} onClick={(event) => event.stopPropagation()}>
+          <div style={modalHeaderStyle}>
+            <div>
+              <div style={eyebrowStyle}>{selectedPartner?.partnerCode ?? "-"}</div>
+              <h3 style={modalTitleStyle}>ThinkingData 记录</h3>
+            </div>
+            <button type="button" onClick={() => setThinkingDataOpen(false)} style={closeButtonStyle}>
+              关闭
+            </button>
+          </div>
+
+          <div style={modalToolbarStyle}>
+            <input
+              type="month"
+              value={month}
+              onChange={(event) => setMonth(event.target.value)}
+              style={monthInputStyle}
+            />
+            <button type="button" onClick={loadThinkingDataEvents} style={secondaryButtonStyle}>
+              查询
+            </button>
+            <span style={mutedTextStyle}>UID: {selectedPartner?.uid ?? "-"}</span>
+          </div>
+
+          {thinkingDataError ? <div style={errorStyle}>{thinkingDataError}</div> : null}
+          {thinkingDataLoading ? (
+            <div style={emptyStyle}>ThinkingData 数据加载中...</div>
+          ) : thinkingDataRows.length === 0 ? (
+            <div style={emptyStyle}>当前月份暂无 ThinkingData 记录。</div>
+          ) : (
+            <div style={thinkingDataListStyle}>
+              {thinkingDataRows.map((row, index) => (
+                <div key={index} style={thinkingDataItemStyle}>
+                  <strong>{getThinkingDataEventName(row)}</strong>
+                  <div style={dateTextStyle}>{getThinkingDataEventTime(row)}</div>
+                  <pre style={thinkingDataJsonStyle}>{JSON.stringify(row, null, 2)}</pre>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {thinkingDataHeaders.length > 0 ? (
+            <div style={mutedTextStyle}>字段：{thinkingDataHeaders.join(", ")}</div>
+          ) : null}
+        </div>
+      </div>
+    ) : null}
     {ledgerMode ? (
       <div style={modalOverlayStyle} onClick={() => setLedgerMode(null)}>
         <div style={modalStyle} onClick={(event) => event.stopPropagation()}>
@@ -543,6 +640,22 @@ function Metric({ label, value }: { label: string; value: string }) {
       <div style={metricValueStyle}>{value}</div>
     </div>
   );
+}
+
+function getThinkingDataEventName(row: ThinkingDataEventRow) {
+  return String(row["#event_name"] ?? row.event_name ?? row.eventName ?? "Unknown Event");
+}
+
+function getThinkingDataEventTime(row: ThinkingDataEventRow) {
+  const value =
+    row["#time"] ??
+    row["#event_time"] ??
+    row["#server_time"] ??
+    row.event_time ??
+    row.eventTime ??
+    row.time;
+
+  return value ? String(value) : "-";
 }
 
 function getCurrentMonth() {
@@ -843,6 +956,34 @@ const closeButtonStyle: React.CSSProperties = {
   color: "white",
   fontWeight: 800,
   cursor: "pointer",
+};
+
+const thinkingDataListStyle: React.CSSProperties = {
+  display: "grid",
+  gap: "12px",
+  maxHeight: "56vh",
+  overflowY: "auto",
+};
+
+const thinkingDataItemStyle: React.CSSProperties = {
+  display: "grid",
+  gap: "8px",
+  padding: "12px",
+  borderRadius: "12px",
+  background: "rgba(255,255,255,0.045)",
+  border: "1px solid rgba(255,255,255,0.06)",
+};
+
+const thinkingDataJsonStyle: React.CSSProperties = {
+  margin: 0,
+  padding: "12px",
+  borderRadius: "10px",
+  background: "#020617",
+  color: "#dbeafe",
+  fontSize: "12px",
+  lineHeight: 1.5,
+  whiteSpace: "pre-wrap",
+  wordBreak: "break-word",
 };
 
 const ledgerListStyle: React.CSSProperties = {
