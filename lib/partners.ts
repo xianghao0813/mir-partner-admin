@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import type { User, UserMetadata } from "@supabase/supabase-js";
 
 export type PartnerTier = {
@@ -84,8 +85,14 @@ export function readPartnerCode(metadata: UserMetadata | undefined, partnerNumbe
     readValidPartnerCode(metadata?.partner_code) ||
     readValidPartnerCode(metadata?.mir_partner_code) ||
     readValidPartnerCode(metadata?.partnerCode) ||
-    `LP${String(partnerNumber).padStart(6, "0")}`
+    createStableFallbackPartnerCode(metadata, partnerNumber)
   );
+}
+
+function createStableFallbackPartnerCode(metadata: UserMetadata | undefined, partnerNumber: number) {
+  const seed = readString(metadata?.quicksdk_uid) || readString(metadata?.quicksdk_username) || String(partnerNumber);
+  const digest = crypto.createHash("sha256").update(`mir-partner:${seed}`, "utf8").digest("hex");
+  return `LP${String(parseInt(digest.slice(0, 12), 16) % 1000000).padStart(6, "0")}`;
 }
 
 export function getCurrentTier(points: number) {
