@@ -11,6 +11,7 @@ export async function createClient() {
     {
       cookieOptions: ADMIN_AUTH_COOKIE_OPTIONS,
       cookies: {
+        encode: "tokens-only",
         getAll() {
           return cookieStore.getAll();
         },
