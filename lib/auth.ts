@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 
 const ALLOWED_STATUSES = new Set(["active", "readonly"]);
+const ADMIN_ROLE_GROUPS = new Set(["super_admin", "ops_manager", "content_manager", "analyst"]);
 
 export async function getAdminSessionUser() {
   const supabase = await createClient();
@@ -9,6 +10,10 @@ export async function getAdminSessionUser() {
   } = await supabase.auth.getUser();
 
   if (!user) {
+    return null;
+  }
+
+  if (!isAdminAccount(user.app_metadata, user.user_metadata)) {
     return null;
   }
 
@@ -47,6 +52,27 @@ function normalizeStatus(userMetadata: unknown) {
   const raw = String(value ?? "active").trim();
   const allowed = new Set(["active", "suspended", "readonly"]);
   return allowed.has(raw) ? raw : "active";
+}
+
+export function isAdminAccount(appMetadata: unknown, userMetadata?: unknown) {
+  const app = isRecord(appMetadata) ? appMetadata : {};
+  const user = isRecord(userMetadata) ? userMetadata : {};
+  const roleGroup = String(app.role_group ?? user.role_group ?? "").trim();
+  const accountType = String(app.account_type ?? user.account_type ?? "").trim();
+  const isAdmin = app.is_admin === true || user.is_admin === true;
+
+  return accountType === "admin" || isAdmin || ADMIN_ROLE_GROUPS.has(roleGroup);
+}
+
+export function normalizeAdminRoleGroup(appMetadata: unknown, userMetadata?: unknown) {
+  const app = isRecord(appMetadata) ? appMetadata : {};
+  const user = isRecord(userMetadata) ? userMetadata : {};
+  const raw = String(app.role_group ?? user.role_group ?? "").trim();
+  return ADMIN_ROLE_GROUPS.has(raw) ? raw : "";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object";
 }
 
 function readIsoDate(source: unknown, key: string) {

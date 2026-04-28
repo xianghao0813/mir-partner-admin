@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminSessionUser } from "@/lib/auth";
+import { isAdminAccount, requireAdminSessionUser } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 const DEFAULT_ACCESS_LEVEL = 3;
@@ -27,7 +27,7 @@ export async function GET() {
   }
 
   const users =
-    data?.users.map((item) => ({
+    data?.users.filter((item) => isAdminAccount(item.app_metadata, item.user_metadata)).map((item) => ({
       id: item.id,
       email: item.email ?? "",
       createdAt: item.created_at ?? null,
@@ -106,11 +106,15 @@ export async function POST(req: NextRequest) {
 
   const { error: metadataError } = await supabaseAdmin.auth.admin.updateUserById(data.user.id, {
     app_metadata: {
+      account_type: "admin",
+      is_admin: true,
       role_group: roleGroup,
       access_level: accessLevel,
       force_logout_at: null,
     },
     user_metadata: {
+      account_type: "admin",
+      is_admin: true,
       status,
       role_group: roleGroup,
     },

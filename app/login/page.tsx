@@ -30,6 +30,16 @@ export default function LoginPage() {
       return;
     }
 
+    const sessionRes = await fetch("/api/admin/users", {
+      cache: "no-store",
+    });
+
+    if (sessionRes.status === 401) {
+      await supabase.auth.signOut();
+      setMessage("该账号不是管理员账号。请使用由超级管理员创建的账号登录。");
+      return;
+    }
+
     router.push("/dashboard");
     router.refresh();
   }

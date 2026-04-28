@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminSessionUser } from "@/lib/auth";
+import { isAdminAccount, requireAdminSessionUser } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 const DEFAULT_ACCESS_LEVEL = 3;
@@ -10,10 +10,19 @@ export async function PATCH(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  let adminUser;
+
   try {
-    await requireAdminSessionUser();
+    adminUser = await requireAdminSessionUser();
   } catch {
     return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  }
+
+  if (getRoleGroup(adminUser.app_metadata, adminUser.user_metadata) !== "super_admin") {
+    return NextResponse.json(
+      { message: "Only Super Admin can update admin accounts." },
+      { status: 403 }
+    );
   }
 
   const { id } = await context.params;
@@ -23,13 +32,35 @@ export async function PATCH(
   const accessLevel = normalizeAccessLevel(body.accessLevel);
   const status = normalizeStatus(body.status);
 
+  const { data: currentUserData, error: fetchError } =
+    await supabaseAdmin.auth.admin.getUserById(id);
+
+  if (fetchError || !currentUserData.user) {
+    return NextResponse.json(
+      { message: "Failed to resolve admin account", error: fetchError?.message },
+      { status: 500 }
+    );
+  }
+
+  if (!isAdminAccount(currentUserData.user.app_metadata, currentUserData.user.user_metadata)) {
+    return NextResponse.json(
+      { message: "This user is not an admin account." },
+      { status: 403 }
+    );
+  }
+
   const { data, error } = await supabaseAdmin.auth.admin.updateUserById(id, {
     app_metadata: {
+      account_type: "admin",
+      is_admin: true,
       role_group: roleGroup,
       access_level: accessLevel,
     },
     user_metadata: {
+      account_type: "admin",
+      is_admin: true,
       status,
+      role_group: roleGroup,
     },
   });
 
@@ -55,10 +86,19 @@ export async function POST(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  let adminUser;
+
   try {
-    await requireAdminSessionUser();
+    adminUser = await requireAdminSessionUser();
   } catch {
     return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  }
+
+  if (getRoleGroup(adminUser.app_metadata, adminUser.user_metadata) !== "super_admin") {
+    return NextResponse.json(
+      { message: "Only Super Admin can manage admin accounts." },
+      { status: 403 }
+    );
   }
 
   const { id } = await context.params;
@@ -97,6 +137,13 @@ export async function POST(
       return NextResponse.json(
         { message: "Failed to resolve admin account", error: fetchError?.message },
         { status: 500 }
+      );
+    }
+
+    if (!isAdminAccount(currentUserData.user.app_metadata, currentUserData.user.user_metadata)) {
+      return NextResponse.json(
+        { message: "This user is not an admin account." },
+        { status: 403 }
       );
     }
 
@@ -145,6 +192,23 @@ export async function DELETE(
   }
 
   const { id } = await context.params;
+
+  const { data: currentUserData, error: fetchError } =
+    await supabaseAdmin.auth.admin.getUserById(id);
+
+  if (fetchError || !currentUserData.user) {
+    return NextResponse.json(
+      { message: "Failed to resolve admin account", error: fetchError?.message },
+      { status: 500 }
+    );
+  }
+
+  if (!isAdminAccount(currentUserData.user.app_metadata, currentUserData.user.user_metadata)) {
+    return NextResponse.json(
+      { message: "This user is not an admin account." },
+      { status: 403 }
+    );
+  }
 
   if (id === adminUser.id) {
     return NextResponse.json(
