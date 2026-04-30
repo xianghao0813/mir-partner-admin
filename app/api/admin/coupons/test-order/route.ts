@@ -3,6 +3,7 @@ import { requireAdminSessionUser } from "@/lib/auth";
 import { appendAdminCouponTestOrder } from "@/lib/partners";
 import { changeQuickSdkPlatformCoins } from "@/lib/quicksdk";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { insertPointTransaction, insertWalletTransaction } from "@/lib/userLedgers";
 
 type CouponRecord = {
   id: string;
@@ -154,6 +155,11 @@ export async function POST(request: NextRequest) {
   if (updateError) {
     return NextResponse.json({ message: updateError.message }, { status: 500 });
   }
+
+  await Promise.all([
+    insertWalletTransaction(userId, result.walletTransaction),
+    insertPointTransaction(userId, result.pointTransaction),
+  ]);
 
   return NextResponse.json({
     success: true,

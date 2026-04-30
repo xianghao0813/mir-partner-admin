@@ -8,6 +8,7 @@ import {
 } from "@/lib/partners";
 import { changeQuickSdkPlatformCoins } from "@/lib/quicksdk";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { insertPointTransaction, insertWalletTransaction } from "@/lib/userLedgers";
 
 export async function GET(request: NextRequest) {
   try {
@@ -113,6 +114,10 @@ export async function PATCH(request: NextRequest) {
     const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
       user_metadata: adjustment.metadata,
     });
+
+    if (!updateError) {
+      await insertPointTransaction(userId, adjustment.pointTransaction);
+    }
 
     results.push({
       userId,
@@ -228,6 +233,11 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+
+  await Promise.all([
+    insertWalletTransaction(userId, testOrder.walletTransaction),
+    insertPointTransaction(userId, testOrder.pointTransaction),
+  ]);
 
   return NextResponse.json({
     success: true,

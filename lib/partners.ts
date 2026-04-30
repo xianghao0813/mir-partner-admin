@@ -148,6 +148,7 @@ export function appendManualPointAdjustment({
     },
     beforePoints,
     afterPoints,
+    pointTransaction: transaction,
   };
 }
 
@@ -234,6 +235,8 @@ export function appendAdminTestRechargeOrder({
     beforeCoins,
     afterCoins,
     orderNo,
+    pointTransaction,
+    walletTransaction,
   };
 }
 
@@ -325,6 +328,8 @@ export function appendAdminCouponTestOrder({
     beforeCoins,
     afterCoins,
     orderNo,
+    pointTransaction,
+    walletTransaction,
   };
 }
 
