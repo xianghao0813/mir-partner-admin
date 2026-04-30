@@ -8,7 +8,12 @@ import {
 } from "@/lib/partners";
 import { changeQuickSdkPlatformCoins } from "@/lib/quicksdk";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { insertPointTransaction, insertWalletTransaction } from "@/lib/userLedgers";
+import {
+  insertPointTransaction,
+  insertWalletTransaction,
+  readPointTransactionsFromDb,
+  readWalletTransactionsFromDb,
+} from "@/lib/userLedgers";
 
 export async function GET(request: NextRequest) {
   try {
@@ -46,13 +51,28 @@ export async function GET(request: NextRequest) {
       )
     : partners;
 
+  const partnersWithDbLedgers = await Promise.all(
+    filtered.map(async (partner) => {
+      const [pointTransactions, coinTransactions] = await Promise.all([
+        readPointTransactionsFromDb(partner.id, month),
+        readWalletTransactionsFromDb(partner.id, month),
+      ]);
+
+      return {
+        ...partner,
+        pointTransactions: pointTransactions.length > 0
+          ? pointTransactions
+          : filterLedgerByMonth(partner.pointTransactions, month),
+        coinTransactions: coinTransactions.length > 0
+          ? coinTransactions
+          : filterLedgerByMonth(partner.coinTransactions, month),
+      };
+    })
+  );
+
   return NextResponse.json({
     totalPartners: partners.length,
-    partners: filtered.map((partner) => ({
-      ...partner,
-      pointTransactions: filterLedgerByMonth(partner.pointTransactions, month),
-      coinTransactions: filterLedgerByMonth(partner.coinTransactions, month),
-    })),
+    partners: partnersWithDbLedgers,
   });
 }
 
