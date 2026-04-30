@@ -40,6 +40,7 @@ export async function insertWalletTransaction(userId: string, transaction: Walle
 
   if (error) {
     console.error("[wallet_transactions insert]", error);
+    throw new Error(`wallet_transactions insert failed: ${error.message}`);
   }
 }
 
@@ -65,6 +66,7 @@ export async function insertPointTransaction(userId: string, transaction: PointL
 
   if (error) {
     console.error("[mir_point_transactions insert]", error);
+    throw new Error(`mir_point_transactions insert failed: ${error.message}`);
   }
 }
 
