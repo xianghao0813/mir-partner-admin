@@ -32,6 +32,18 @@ type PartnerRecord = {
 type LedgerMode = "points" | "coins";
 type PartnerTab = "list" | "points" | "test-order" | "coupons";
 
+type CouponItem = {
+  id: string;
+  code: string;
+  title: string;
+  discountType: "amount" | "percent";
+  discountValue: number;
+  minAmount: number;
+  applicablePackageIds: number[];
+  expiresAt: string;
+  status: "unused" | "expired" | "used";
+};
+
 const partnerTabs: { key: PartnerTab; label: string }[] = [
   { key: "list", label: "合伙人列表" },
   { key: "points", label: "积分调整" },
@@ -73,6 +85,9 @@ export default function PartnersManagerClient() {
   const [testAmount, setTestAmount] = useState("");
   const [testOrderNo, setTestOrderNo] = useState("");
   const [testRemark, setTestRemark] = useState("管理员测试订单");
+  const [testCouponId, setTestCouponId] = useState("");
+  const [testPackageId, setTestPackageId] = useState("1");
+  const [coupons, setCoupons] = useState<CouponItem[]>([]);
   const [creatingTestOrder, setCreatingTestOrder] = useState(false);
 
   const [couponTitle, setCouponTitle] = useState("云币充值优惠券");
@@ -100,6 +115,16 @@ export default function PartnersManagerClient() {
   useEffect(() => {
     void loadPartners();
   }, []);
+
+  useEffect(() => {
+    if (!selectedPartner) {
+      setCoupons([]);
+      setTestCouponId("");
+      return;
+    }
+
+    void loadCoupons(selectedPartner.id);
+  }, [selectedPartner?.id]);
 
   function setActiveTab(tab: PartnerTab) {
     router.push(`/partners?tab=${tab}`, { scroll: false });
@@ -142,6 +167,28 @@ export default function PartnersManagerClient() {
       setError(loadError instanceof Error ? loadError.message : "Failed to fetch partners");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadCoupons(userId: string) {
+    try {
+      const res = await fetch(adminPath(`/api/admin/coupons?userId=${encodeURIComponent(userId)}`), {
+        cache: "no-store",
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        return;
+      }
+
+      const nextCoupons = Array.isArray(json?.coupons) ? json.coupons as CouponItem[] : [];
+      setCoupons(nextCoupons);
+      setTestCouponId((current) =>
+        current && nextCoupons.some((coupon) => coupon.id === current && coupon.status === "unused")
+          ? current
+          : ""
+      );
+    } catch {
+      setCoupons([]);
     }
   }
 
@@ -228,33 +275,49 @@ export default function PartnersManagerClient() {
       return;
     }
 
-    if (!Number.isFinite(amount) || amount <= 0) {
+    if (!testCouponId && (!Number.isFinite(amount) || amount <= 0)) {
       setError("请输入大于 0 的测试订单金额。");
       return;
     }
 
     setCreatingTestOrder(true);
     try {
-      const res = await fetch(adminPath("/api/admin/partners"), {
+      const res = await fetch(adminPath(testCouponId ? "/api/admin/coupons/test-order" : "/api/admin/partners"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId: selectedPartner.id,
-          amount,
-          orderNo: testOrderNo,
-          remark: testRemark,
-        }),
+        body: JSON.stringify(
+          testCouponId
+            ? {
+                userId: selectedPartner.id,
+                couponId: testCouponId,
+                packageId: Number(testPackageId),
+                orderNo: testOrderNo,
+                remark: testRemark || "管理员优惠券测试订单",
+              }
+            : {
+                userId: selectedPartner.id,
+                amount,
+                orderNo: testOrderNo,
+                remark: testRemark,
+              }
+        ),
       });
       const json = await res.json().catch(() => null);
       if (!res.ok) {
         throw new Error(json?.message ?? "测试订单创建失败。");
       }
 
-      setMessage(`测试订单已创建：${json?.orderNo ?? ""}，增加 ${Number(json?.awardedPoints ?? 0).toLocaleString()} 积分。`);
+      setMessage(
+        testCouponId
+          ? `优惠券测试订单已创建：${json?.orderNo ?? ""}，实付 ¥${json?.paidAmount ?? "-"}，增加 ${Number(json?.awardedPoints ?? 0).toLocaleString()} 积分。`
+          : `测试订单已创建：${json?.orderNo ?? ""}，增加 ${Number(json?.awardedPoints ?? 0).toLocaleString()} 积分。`
+      );
       setTestAmount("");
       setTestOrderNo("");
       setTestRemark("管理员测试订单");
+      setTestCouponId("");
       await loadPartners({ q: query, month });
+      await loadCoupons(selectedPartner.id);
       setLedgerMode("points");
     } catch (testOrderError) {
       setError(testOrderError instanceof Error ? testOrderError.message : "测试订单创建失败。");
@@ -521,13 +584,36 @@ export default function PartnersManagerClient() {
 
               {activeTab === "test-order" ? (
                 <form onSubmit={handleCreateTestOrder} style={utilityPanelStyle}>
-                  <PanelTitle eyebrow="Test Order" title="创建测试订单" description="金额会同时增加云币，并按金额 x100 写入 MIR 积分明细。" />
+                  <PanelTitle eyebrow="Test Order" title="创建测试订单" description="可创建普通测试订单，也可以选择未使用优惠券模拟一次优惠券支付。" />
                   <div style={formGridStyle}>
-                    <input type="number" min="1" value={testAmount} onChange={(event) => setTestAmount(event.target.value)} placeholder="订单金额 / 云币" style={compactInputStyle} />
+                    <select value={testCouponId} onChange={(event) => setTestCouponId(event.target.value)} style={compactInputStyle}>
+                      <option value="">不使用优惠券</option>
+                      {coupons
+                        .filter((coupon) => coupon.status === "unused")
+                        .map((coupon) => (
+                          <option key={coupon.id} value={coupon.id}>
+                            {coupon.title} / {renderCouponDiscount(coupon)} / {coupon.code}
+                          </option>
+                        ))}
+                    </select>
+                    {testCouponId ? (
+                      <select value={testPackageId} onChange={(event) => setTestPackageId(event.target.value)} style={compactInputStyle}>
+                        {packageOptions.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input type="number" min="1" value={testAmount} onChange={(event) => setTestAmount(event.target.value)} placeholder="订单金额 / 云币" style={compactInputStyle} />
+                    )}
                     <input value={testOrderNo} onChange={(event) => setTestOrderNo(event.target.value)} placeholder="测试订单号，可留空自动生成" style={compactInputStyle} />
                     <input value={testRemark} onChange={(event) => setTestRemark(event.target.value)} placeholder="订单备注" style={compactInputStyle} />
-                    <button type="submit" disabled={creatingTestOrder} style={primaryButtonStyle}>{creatingTestOrder ? "创建中..." : "创建测试订单"}</button>
+                    <button type="submit" disabled={creatingTestOrder} style={primaryButtonStyle}>{creatingTestOrder ? "创建中..." : testCouponId ? "创建优惠券测试订单" : "创建测试订单"}</button>
                   </div>
+                  {testCouponId ? (
+                    <div style={mutedTextStyle}>优惠券测试订单会将所选优惠券标记为已使用，并按折后实付金额发放 MIR 积分。</div>
+                  ) : null}
                 </form>
               ) : null}
             </>
@@ -618,6 +704,12 @@ function formatDate(value: string | null) {
 
 function normalizeTab(value: string | null): PartnerTab {
   return value === "points" || value === "test-order" || value === "coupons" ? value : "list";
+}
+
+function renderCouponDiscount(coupon: CouponItem) {
+  return coupon.discountType === "percent"
+    ? `${coupon.discountValue}% 折扣`
+    : `立减 ¥${coupon.discountValue}`;
 }
 
 function addDays(date: Date, days: number) {

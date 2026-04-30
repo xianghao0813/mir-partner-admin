@@ -4,6 +4,46 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 type CouponDiscountType = "amount" | "percent";
 
+export async function GET(request: NextRequest) {
+  try {
+    await requireAdminSessionUser();
+  } catch {
+    return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  }
+
+  const userId = request.nextUrl.searchParams.get("userId")?.trim() ?? "";
+  if (!userId) {
+    return NextResponse.json({ coupons: [] });
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("user_coupons")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    return NextResponse.json({ message: error.message }, { status: 500 });
+  }
+
+  const now = new Date();
+  return NextResponse.json({
+    coupons: (data ?? []).map((coupon) => ({
+      id: coupon.id,
+      code: coupon.coupon_code,
+      title: coupon.title,
+      discountType: coupon.discount_type,
+      discountValue: Number(coupon.discount_value),
+      minAmount: Number(coupon.min_amount),
+      applicablePackageIds: coupon.applicable_package_ids ?? [],
+      startsAt: coupon.starts_at,
+      expiresAt: coupon.expires_at,
+      usedAt: coupon.used_at,
+      status: getCouponStatus(coupon, now),
+    })),
+  });
+}
+
 export async function POST(request: NextRequest) {
   let adminUser;
 
@@ -112,4 +152,14 @@ function normalizeDate(value: unknown, fallback: Date | null) {
 function buildCouponCode() {
   const random = Math.random().toString(36).slice(2, 8).toUpperCase();
   return `CP${Date.now().toString(36).toUpperCase()}${random}`.slice(0, 24);
+}
+
+function getCouponStatus(coupon: { starts_at: string; expires_at: string; used_at: string | null }, now: Date) {
+  if (coupon.used_at) {
+    return "used";
+  }
+
+  const startsAt = new Date(coupon.starts_at);
+  const expiresAt = new Date(coupon.expires_at);
+  return startsAt <= now && now <= expiresAt ? "unused" : "expired";
 }

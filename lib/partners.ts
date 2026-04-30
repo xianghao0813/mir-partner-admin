@@ -237,6 +237,97 @@ export function appendAdminTestRechargeOrder({
   };
 }
 
+export function appendAdminCouponTestOrder({
+  metadata,
+  orderNo,
+  adminEmail,
+  remark,
+  originalAmount,
+  paidAmount,
+  coins,
+  couponCode,
+  now = new Date(),
+}: {
+  metadata: UserMetadata | undefined;
+  orderNo: string;
+  adminEmail: string;
+  remark: string;
+  originalAmount: number;
+  paidAmount: number;
+  coins: number;
+  couponCode: string;
+  now?: Date;
+}) {
+  const awardedPoints = Math.max(0, Math.floor(paidAmount * 100));
+  const beforePoints = readMirPoints(metadata);
+  const afterPoints = beforePoints + awardedPoints;
+  const beforeCoins = readCloudCoins(metadata);
+  const afterCoins = beforeCoins + Math.max(0, Math.floor(coins));
+  const beforeTier = getCurrentTier(beforePoints);
+  const afterTier = getCurrentTier(afterPoints);
+  const monthKey = getShanghaiMonthKey(now);
+  const currentMonthlyPoints = readMonthlyPoints(metadata, monthKey);
+  const createdAt = now.toISOString();
+
+  const pointTransaction = {
+    id: `coupon-test-point-${orderNo}`,
+    type: "earn",
+    source: "admin_coupon_test_order",
+    points: awardedPoints,
+    title: "优惠券测试订单积分",
+    description: `${remark || "管理员优惠券测试订单"} / 券码：${couponCode} / 原价：${originalAmount} / 实付：${paidAmount}`,
+    adminEmail,
+    beforePoints,
+    afterPoints,
+    createdAt,
+  };
+  const walletTransaction = {
+    id: `sdk-order-${orderNo}`,
+    type: "recharge",
+    amount: paidAmount,
+    coins: Math.max(0, Math.floor(coins)),
+    desc: `${remark || "管理员优惠券测试订单"} / 券码：${couponCode} / ${orderNo}`,
+    date: createdAt.slice(0, 10),
+    payMethod: "",
+    status: "success",
+    adminEmail,
+    createdAt,
+  };
+  const currentPointTransactions = Array.isArray(metadata?.mir_point_transactions)
+    ? metadata.mir_point_transactions
+    : [];
+  const currentWalletTransactions = Array.isArray(metadata?.wallet_transactions)
+    ? metadata.wallet_transactions
+    : [];
+
+  return {
+    metadata: {
+      ...(metadata ?? {}),
+      cloud_coins: afterCoins,
+      wallet_last_order_no: orderNo,
+      wallet_transactions: [walletTransaction, ...currentWalletTransactions].slice(0, 500),
+      mir_points: afterPoints,
+      mir_month_key: monthKey,
+      mir_month_points: currentMonthlyPoints + awardedPoints,
+      mir_last_tier_id: afterTier.id,
+      mir_upgraded_month_key:
+        afterTier.id > beforeTier.id
+          ? monthKey
+          : readString(metadata?.mir_upgraded_month_key) || undefined,
+      mir_last_point_source: "admin_coupon_test_order",
+      mir_last_point_award: awardedPoints,
+      mir_last_point_awarded_at: createdAt,
+      mir_point_transactions: [pointTransaction, ...currentPointTransactions].slice(0, 500),
+    },
+    beforePoints,
+    afterPoints,
+    awardedPoints,
+    beforeCoins,
+    afterCoins,
+    orderNo,
+  };
+}
+
 function readMirPoints(metadata: UserMetadata | undefined) {
   return readNumberFromKeys(metadata, ["mir_points", "partner_points", "total_points", "points"]);
 }
