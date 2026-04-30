@@ -194,11 +194,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: "该用户缺少 QuickSDK UID，无法发放到 SDK 钱包。" }, { status: 400 });
     }
 
-    sdkWalletAmount = await changeQuickSdkPlatformCoins({
-      userId: sdkUid,
-      amount: String(amount),
-      remark: `${remark} / ${orderNo} / admin real SDK issue`,
-    });
+    try {
+      sdkWalletAmount = await changeQuickSdkPlatformCoins({
+        userId: sdkUid,
+        amount: String(amount),
+        remark: `${remark} / ${orderNo} / admin real SDK issue`,
+      });
+    } catch (sdkError) {
+      return NextResponse.json(
+        {
+          message: `QuickSDK 钱包发放失败：${sdkError instanceof Error ? sdkError.message : "Unknown error"}`,
+        },
+        { status: 502 }
+      );
+    }
   }
 
   const testOrder = appendAdminTestRechargeOrder({
