@@ -30,48 +30,72 @@ type PartnerRecord = {
 };
 
 type LedgerMode = "points" | "coins";
-type PartnerTab = "list" | "points" | "test-order";
-
-type ThinkingDataEventRow = Record<string, unknown>;
+type PartnerTab = "list" | "points" | "test-order" | "coupons";
 
 const partnerTabs: { key: PartnerTab; label: string }[] = [
-  { key: "list", label: "파트너 목록" },
-  { key: "points", label: "포인트 조정" },
-  { key: "test-order", label: "테스트 주문" },
+  { key: "list", label: "合伙人列表" },
+  { key: "points", label: "积分调整" },
+  { key: "test-order", label: "测试订单" },
+  { key: "coupons", label: "优惠券" },
+];
+
+const packageOptions = [
+  { id: 1, label: "100 云币" },
+  { id: 2, label: "300 云币" },
+  { id: 3, label: "500 云币" },
+  { id: 4, label: "1,000 云币" },
+  { id: 5, label: "5,000 云币" },
+  { id: 6, label: "10,000 云币" },
+  { id: 7, label: "20,000 云币" },
+  { id: 8, label: "30,000 云币" },
 ];
 
 export default function PartnersManagerClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const activeTab = normalizeTab(searchParams.get("tab"));
   const [partners, setPartners] = useState<PartnerRecord[]>([]);
   const [totalPartners, setTotalPartners] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const [month, setMonth] = useState(getCurrentMonth());
   const [ledgerMode, setLedgerMode] = useState<LedgerMode | null>(null);
-  const [thinkingDataOpen, setThinkingDataOpen] = useState(false);
-  const [thinkingDataRows, setThinkingDataRows] = useState<ThinkingDataEventRow[]>([]);
-  const [thinkingDataHeaders, setThinkingDataHeaders] = useState<string[]>([]);
-  const [thinkingDataLoading, setThinkingDataLoading] = useState(false);
-  const [thinkingDataError, setThinkingDataError] = useState("");
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
   const [adjustMode, setAdjustMode] = useState<"add" | "deduct">("add");
   const [adjustAmount, setAdjustAmount] = useState("");
   const [adjustReason, setAdjustReason] = useState("");
   const [adjusting, setAdjusting] = useState(false);
+
   const [testAmount, setTestAmount] = useState("");
   const [testOrderNo, setTestOrderNo] = useState("");
   const [testRemark, setTestRemark] = useState("管理员测试订单");
   const [creatingTestOrder, setCreatingTestOrder] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
-  const activeTab = normalizeTab(searchParams.get("tab"));
+
+  const [couponTitle, setCouponTitle] = useState("云币充值优惠券");
+  const [couponDescription, setCouponDescription] = useState("适用于云币充值的优惠券。");
+  const [couponDiscountType, setCouponDiscountType] = useState<"amount" | "percent">("amount");
+  const [couponDiscountValue, setCouponDiscountValue] = useState("");
+  const [couponMinAmount, setCouponMinAmount] = useState("100");
+  const [couponPackageIds, setCouponPackageIds] = useState<number[]>([]);
+  const [couponStartsAt, setCouponStartsAt] = useState(toDateTimeInputValue(new Date()));
+  const [couponExpiresAt, setCouponExpiresAt] = useState(toDateTimeInputValue(addDays(new Date(), 7)));
+  const [creatingCoupon, setCreatingCoupon] = useState(false);
 
   const selectedPartner = useMemo(
     () => partners.find((partner) => partner.id === selectedId) ?? partners[0] ?? null,
     [partners, selectedId]
   );
+
+  const activeLedger =
+    ledgerMode === "points"
+      ? selectedPartner?.pointTransactions ?? []
+      : ledgerMode === "coins"
+        ? selectedPartner?.coinTransactions ?? []
+        : [];
 
   useEffect(() => {
     void loadPartners();
@@ -98,9 +122,7 @@ export default function PartnersManagerClient() {
         search.set("month", nextMonth.trim());
       }
 
-      const res = await fetch(adminPath(`/api/admin/partners?${search.toString()}`), {
-        cache: "no-store",
-      });
+      const res = await fetch(adminPath(`/api/admin/partners?${search.toString()}`), { cache: "no-store" });
       const json = await res.json().catch(() => null);
 
       if (!res.ok) {
@@ -110,15 +132,12 @@ export default function PartnersManagerClient() {
       const nextPartners = (json?.partners ?? []) as PartnerRecord[];
       setPartners(nextPartners);
       setTotalPartners(Number(json?.totalPartners ?? 0));
-      setSelectedIds((current) =>
-        current.filter((id) => nextPartners.some((partner) => partner.id === id))
-      );
+      setSelectedIds((current) => current.filter((id) => nextPartners.some((partner) => partner.id === id)));
       setSelectedId((current) =>
         current && nextPartners.some((partner) => partner.id === current)
           ? current
           : nextPartners[0]?.id ?? null
       );
-      setLedgerMode(null);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to fetch partners");
     } finally {
@@ -141,13 +160,20 @@ export default function PartnersManagerClient() {
     setSelectedIds(checked ? partners.map((partner) => partner.id) : []);
   }
 
+  function getTargetUserIds() {
+    if (selectedIds.length > 0) {
+      return selectedIds;
+    }
+
+    return selectedPartner ? [selectedPartner.id] : [];
+  }
+
   async function handleAdjustPoints(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
     setMessage("");
 
     const amount = Math.floor(Number(adjustAmount));
-
     if (selectedIds.length === 0) {
       setError("请选择至少一个合伙人。");
       return;
@@ -164,7 +190,6 @@ export default function PartnersManagerClient() {
     }
 
     setAdjusting(true);
-
     try {
       const res = await fetch(adminPath("/api/admin/partners"), {
         method: "PATCH",
@@ -177,7 +202,6 @@ export default function PartnersManagerClient() {
         }),
       });
       const json = await res.json().catch(() => null);
-
       if (!res.ok) {
         throw new Error(json?.message ?? "积分调整失败。");
       }
@@ -199,7 +223,6 @@ export default function PartnersManagerClient() {
     setMessage("");
 
     const amount = Math.floor(Number(testAmount));
-
     if (!selectedPartner) {
       setError("请选择一个合伙人。");
       return;
@@ -211,7 +234,6 @@ export default function PartnersManagerClient() {
     }
 
     setCreatingTestOrder(true);
-
     try {
       const res = await fetch(adminPath("/api/admin/partners"), {
         method: "POST",
@@ -224,16 +246,11 @@ export default function PartnersManagerClient() {
         }),
       });
       const json = await res.json().catch(() => null);
-
       if (!res.ok) {
         throw new Error(json?.message ?? "测试订单创建失败。");
       }
 
-      setMessage(
-        `测试订单已创建：${json?.orderNo ?? ""}，增加 ${Number(
-          json?.awardedPoints ?? 0
-        ).toLocaleString()} 积分。`
-      );
+      setMessage(`测试订单已创建：${json?.orderNo ?? ""}，增加 ${Number(json?.awardedPoints ?? 0).toLocaleString()} 积分。`);
       setTestAmount("");
       setTestOrderNo("");
       setTestRemark("管理员测试订单");
@@ -246,390 +263,323 @@ export default function PartnersManagerClient() {
     }
   }
 
-  const activeLedger =
-    ledgerMode === "points"
-      ? selectedPartner?.pointTransactions ?? []
-      : ledgerMode === "coins"
-        ? selectedPartner?.coinTransactions ?? []
-        : [];
+  async function handleCreateCoupon(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setMessage("");
 
-  async function loadThinkingDataEvents() {
-    if (!selectedPartner?.uid) {
-      setThinkingDataError("UID is required.");
+    const userIds = getTargetUserIds();
+    const discountValue = Number(couponDiscountValue);
+    const minAmount = Number(couponMinAmount);
+
+    if (userIds.length === 0) {
+      setError("请选择至少一个合伙人。");
       return;
     }
 
-    setThinkingDataOpen(true);
-    setThinkingDataLoading(true);
-    setThinkingDataError("");
+    if (!couponTitle.trim()) {
+      setError("请输入优惠券名称。");
+      return;
+    }
 
+    if (!Number.isFinite(discountValue) || discountValue <= 0) {
+      setError("请输入有效的优惠金额或折扣比例。");
+      return;
+    }
+
+    if (couponDiscountType === "percent" && discountValue > 100) {
+      setError("百分比折扣不能超过 100%。");
+      return;
+    }
+
+    if (!couponExpiresAt) {
+      setError("请选择到期时间。");
+      return;
+    }
+
+    setCreatingCoupon(true);
     try {
-      const search = new URLSearchParams({
-        uid: selectedPartner.uid,
-        month,
-        limit: "100",
-      });
-      const res = await fetch(adminPath(`/api/admin/thinkingdata/events?${search.toString()}`), {
-        cache: "no-store",
+      const res = await fetch(adminPath("/api/admin/coupons"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userIds,
+          title: couponTitle,
+          description: couponDescription,
+          discountType: couponDiscountType,
+          discountValue,
+          minAmount,
+          packageIds: couponPackageIds,
+          startsAt: couponStartsAt,
+          expiresAt: couponExpiresAt,
+        }),
       });
       const json = await res.json().catch(() => null);
-
       if (!res.ok) {
-        throw new Error(json?.message ?? "ThinkingData query failed.");
+        throw new Error(json?.message ?? "优惠券创建失败。");
       }
 
-      setThinkingDataHeaders(Array.isArray(json?.headers) ? json.headers : []);
-      setThinkingDataRows(Array.isArray(json?.rows) ? json.rows : []);
-    } catch (loadError) {
-      setThinkingDataError(
-        loadError instanceof Error ? loadError.message : "ThinkingData query failed."
-      );
-      setThinkingDataHeaders([]);
-      setThinkingDataRows([]);
+      setMessage(`优惠券已创建：共发放 ${json?.count ?? 0} 张。`);
+      setCouponDiscountValue("");
+    } catch (couponError) {
+      setError(couponError instanceof Error ? couponError.message : "优惠券创建失败。");
     } finally {
-      setThinkingDataLoading(false);
+      setCreatingCoupon(false);
     }
   }
 
   return (
     <>
-    <div style={tabsStyle}>
-      {partnerTabs.map((tab) => (
-        <button
-          key={tab.key}
-          type="button"
-          onClick={() => setActiveTab(tab.key)}
-          style={{
-            ...tabButtonStyle,
-            ...(activeTab === tab.key ? activeTabButtonStyle : null),
-          }}
-        >
-          {tab.label}
-        </button>
-      ))}
-    </div>
+      <div style={tabsStyle}>
+        {partnerTabs.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            onClick={() => setActiveTab(tab.key)}
+            style={{ ...tabButtonStyle, ...(activeTab === tab.key ? activeTabButtonStyle : null) }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-    <div style={pageGridStyle}>
-      <section style={panelStyle}>
-        <div style={toolbarStyle}>
-          <div>
-            <div style={eyebrowStyle}>Partner Count</div>
-            <strong style={countStyle}>{totalPartners.toLocaleString()}</strong>
-            <span style={mutedTextStyle}> 合伙人</span>
-          </div>
-
-          <form onSubmit={handleSearch} style={searchFormStyle}>
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="搜索 UID / 合伙人编码"
-              style={inputStyle}
-            />
-            <input
-              type="month"
-              value={month}
-              onChange={(event) => {
-                setMonth(event.target.value);
-                void loadPartners({ q: query, month: event.target.value });
-              }}
-              style={monthInputStyle}
-            />
-            <button type="submit" style={primaryButtonStyle}>
-              查询
-            </button>
-          </form>
-        </div>
-
-        {error && <div style={errorStyle}>{error}</div>}
-        {message && <div style={successStyle}>{message}</div>}
-        {activeTab === "points" ? (
-        <form onSubmit={handleAdjustPoints} style={adjustPanelStyle}>
-          <div style={adjustHeaderStyle}>
+      <div style={pageGridStyle}>
+        <section style={panelStyle}>
+          <div style={toolbarStyle}>
             <div>
-              <div style={eyebrowStyle}>Manual Points</div>
-              <strong>管理员积分调整</strong>
-              <div style={mutedTextStyle}>已选择 {selectedIds.length} 个合伙人</div>
+              <div style={eyebrowStyle}>Partner Count</div>
+              <strong style={countStyle}>{totalPartners.toLocaleString()}</strong>
+              <span style={mutedTextStyle}> 合伙人</span>
             </div>
-            <div style={modeGroupStyle}>
-              <button
-                type="button"
-                onClick={() => setAdjustMode("add")}
-                style={{
-                  ...modeButtonStyle,
-                  ...(adjustMode === "add" ? activeModeButtonStyle : null),
+
+            <form onSubmit={handleSearch} style={searchFormStyle}>
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="搜索 UID / 合伙人编码"
+                style={inputStyle}
+              />
+              <input
+                type="month"
+                value={month}
+                onChange={(event) => {
+                  setMonth(event.target.value);
+                  void loadPartners({ q: query, month: event.target.value });
                 }}
-              >
-                增加
-              </button>
-              <button
-                type="button"
-                onClick={() => setAdjustMode("deduct")}
-                style={{
-                  ...modeButtonStyle,
-                  ...(adjustMode === "deduct" ? activeModeButtonStyle : null),
-                }}
-              >
-                扣减
-              </button>
-            </div>
+                style={monthInputStyle}
+              />
+              <button type="submit" style={primaryButtonStyle}>查询</button>
+            </form>
           </div>
-          <div style={adjustFormGridStyle}>
-            <input
-              type="number"
-              min="1"
-              value={adjustAmount}
-              onChange={(event) => setAdjustAmount(event.target.value)}
-              placeholder="积分数量"
-              style={compactInputStyle}
-            />
-            <input
-              value={adjustReason}
-              onChange={(event) => setAdjustReason(event.target.value)}
-              placeholder="调整原因"
-              style={compactInputStyle}
-            />
-            <button type="submit" disabled={adjusting} style={primaryButtonStyle}>
-              {adjusting ? "处理中..." : "提交调整"}
-            </button>
-          </div>
-        </form>
-        ) : null}
-        {loading ? (
-          <div style={emptyStyle}>加载合伙人数据...</div>
-        ) : partners.length === 0 ? (
-          <div style={emptyStyle}>暂无匹配的合伙人。</div>
-        ) : (
-          <div style={tableWrapStyle}>
-            <table style={tableStyle}>
-              <thead>
-                <tr>
-                  <th style={thStyle}>
+
+          {error ? <div style={errorStyle}>{error}</div> : null}
+          {message ? <div style={successStyle}>{message}</div> : null}
+
+          {activeTab === "points" ? (
+            <form onSubmit={handleAdjustPoints} style={utilityPanelStyle}>
+              <PanelTitle eyebrow="Manual Points" title="管理员积分调整" description={`已选择 ${selectedIds.length} 个合伙人`} />
+              <div style={buttonGroupStyle}>
+                <button type="button" onClick={() => setAdjustMode("add")} style={{ ...modeButtonStyle, ...(adjustMode === "add" ? activeModeButtonStyle : null) }}>增加</button>
+                <button type="button" onClick={() => setAdjustMode("deduct")} style={{ ...modeButtonStyle, ...(adjustMode === "deduct" ? activeModeButtonStyle : null) }}>扣减</button>
+              </div>
+              <div style={formGridStyle}>
+                <input type="number" min="1" value={adjustAmount} onChange={(event) => setAdjustAmount(event.target.value)} placeholder="积分数量" style={compactInputStyle} />
+                <input value={adjustReason} onChange={(event) => setAdjustReason(event.target.value)} placeholder="调整原因" style={compactInputStyle} />
+                <button type="submit" disabled={adjusting} style={primaryButtonStyle}>{adjusting ? "处理中..." : "提交调整"}</button>
+              </div>
+            </form>
+          ) : null}
+
+          {activeTab === "coupons" ? (
+            <form onSubmit={handleCreateCoupon} style={utilityPanelStyle}>
+              <PanelTitle
+                eyebrow="Coupons"
+                title="发放优惠券"
+                description={selectedIds.length > 0 ? `将发放给已勾选的 ${selectedIds.length} 个合伙人` : `将发放给当前选中的合伙人：${selectedPartner?.partnerCode ?? "-"}`}
+              />
+              <div style={couponFormGridStyle}>
+                <input value={couponTitle} onChange={(event) => setCouponTitle(event.target.value)} placeholder="优惠券名称" style={compactInputStyle} />
+                <input value={couponDescription} onChange={(event) => setCouponDescription(event.target.value)} placeholder="说明" style={compactInputStyle} />
+                <select value={couponDiscountType} onChange={(event) => setCouponDiscountType(event.target.value === "percent" ? "percent" : "amount")} style={compactInputStyle}>
+                  <option value="amount">固定金额立减</option>
+                  <option value="percent">百分比折扣</option>
+                </select>
+                <input type="number" min="0.01" step="0.01" value={couponDiscountValue} onChange={(event) => setCouponDiscountValue(event.target.value)} placeholder={couponDiscountType === "percent" ? "折扣比例，如 20" : "优惠金额，如 10"} style={compactInputStyle} />
+                <input type="number" min="0" step="0.01" value={couponMinAmount} onChange={(event) => setCouponMinAmount(event.target.value)} placeholder="最低消费金额" style={compactInputStyle} />
+                <input type="datetime-local" value={couponStartsAt} onChange={(event) => setCouponStartsAt(event.target.value)} style={compactInputStyle} />
+                <input type="datetime-local" value={couponExpiresAt} onChange={(event) => setCouponExpiresAt(event.target.value)} style={compactInputStyle} />
+              </div>
+              <div style={packageGridStyle}>
+                {packageOptions.map((item) => (
+                  <label key={item.id} style={checkLabelStyle}>
                     <input
                       type="checkbox"
-                      checked={partners.length > 0 && selectedIds.length === partners.length}
-                      onChange={(event) => toggleAllVisible(event.target.checked)}
-                      aria-label="选择全部可见合伙人"
+                      checked={couponPackageIds.includes(item.id)}
+                      onChange={(event) => {
+                        setCouponPackageIds((current) =>
+                          event.target.checked
+                            ? [...current, item.id]
+                            : current.filter((id) => id !== item.id)
+                        );
+                      }}
                     />
-                  </th>
-                  <th style={thStyle}>合伙人编码</th>
-                  <th style={thStyle}>UID</th>
-                  <th style={thStyle}>账号</th>
-                  <th style={thStyle}>星级</th>
-                  <th style={thStyle}>积分</th>
-                  <th style={thStyle}>云币</th>
-                  <th style={thStyle}>最近登录</th>
-                </tr>
-              </thead>
-              <tbody>
-                {partners.map((partner) => {
-                  const active = selectedPartner?.id === partner.id;
-                  return (
-                    <tr
-                      key={partner.id}
-                      onClick={() => {
-                        setSelectedId(partner.id);
-                        setLedgerMode(null);
-                      }}
-                      style={{
-                        ...trStyle,
-                        ...(active ? activeTrStyle : null),
-                      }}
-                    >
-                      <td style={tdStyle} onClick={(event) => event.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.includes(partner.id)}
-                          onChange={() => toggleSelectedId(partner.id)}
-                          aria-label={`选择 ${partner.partnerCode}`}
-                        />
-                      </td>
-                      <td style={tdStrongStyle}>{partner.partnerCode}</td>
-                      <td style={tdStyle}>{partner.uid}</td>
-                      <td style={tdStyle}>{partner.username || partner.email || "-"}</td>
-                      <td style={tdStyle}>{partner.tier.label}</td>
-                      <td style={tdStyle}>{partner.points.toLocaleString()}</td>
-                      <td style={tdStyle}>{partner.cloudCoins.toLocaleString()}</td>
-                      <td style={tdStyle}>{formatDate(partner.lastSignInAt)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      <aside style={panelStyle}>
-        {selectedPartner ? (
-          <>
-            <div style={detailHeaderStyle}>
-              <div>
-                <div style={eyebrowStyle}>Partner Detail</div>
-                <h3 style={detailTitleStyle}>{selectedPartner.partnerCode}</h3>
+                    {item.label}
+                  </label>
+                ))}
               </div>
-              <span style={badgeStyle}>No. {selectedPartner.partnerNumber.toLocaleString()}</span>
-            </div>
-
-            <div style={metricGridStyle}>
-              <Metric label="UID" value={selectedPartner.uid || "-"} />
-              <Metric label="当前 MIR 积分" value={`${selectedPartner.points.toLocaleString()} 分`} />
-              <Metric label="当前星级" value={selectedPartner.tier.label} />
-              <Metric label="当前云币" value={selectedPartner.cloudCoins.toLocaleString()} />
-              <Metric label="最近接入日" value={formatDate(selectedPartner.lastSignInAt)} />
-              <Metric label="账号" value={selectedPartner.username || selectedPartner.email || "-"} />
-            </div>
-
-            <div style={actionRowStyle}>
-              <button type="button" onClick={() => setLedgerMode("points")} style={secondaryButtonStyle}>
-                查看积分明细
-              </button>
-              <button type="button" onClick={() => setLedgerMode("coins")} style={secondaryButtonStyle}>
-                查看云币明细
-              </button>
-              <button type="button" onClick={loadThinkingDataEvents} style={secondaryButtonStyle}>
-                ThinkingData 记录
-              </button>
-            </div>
-
-            {activeTab === "test-order" ? (
-            <form onSubmit={handleCreateTestOrder} style={testOrderPanelStyle}>
-              <div>
-                <div style={eyebrowStyle}>Test Order</div>
-                <strong>创建测试订单</strong>
-                <div style={mutedTextStyle}>
-                  金额会同时增加云币，并按金额 x100 写入 MIR 积分明细。
-                </div>
-              </div>
-              <input
-                type="number"
-                min="1"
-                value={testAmount}
-                onChange={(event) => setTestAmount(event.target.value)}
-                placeholder="订单金额 / 云币"
-                style={compactInputStyle}
-              />
-              <input
-                value={testOrderNo}
-                onChange={(event) => setTestOrderNo(event.target.value)}
-                placeholder="测试订单号，可留空自动生成"
-                style={compactInputStyle}
-              />
-              <input
-                value={testRemark}
-                onChange={(event) => setTestRemark(event.target.value)}
-                placeholder="订单备注"
-                style={compactInputStyle}
-              />
-              <button type="submit" disabled={creatingTestOrder} style={primaryButtonStyle}>
-                {creatingTestOrder ? "创建中..." : "创建测试订单"}
-              </button>
+              <div style={mutedTextStyle}>不勾选商品时，优惠券适用于所有满足金额条件的云币商品。</div>
+              <button type="submit" disabled={creatingCoupon} style={primaryButtonStyle}>{creatingCoupon ? "创建中..." : "发放优惠券"}</button>
             </form>
-            ) : null}
-
-          </>
-        ) : (
-          <div style={emptyStyle}>请选择一个合伙人。</div>
-        )}
-      </aside>
-    </div>
-    {thinkingDataOpen ? (
-      <div style={modalOverlayStyle} onClick={() => setThinkingDataOpen(false)}>
-        <div style={modalStyle} onClick={(event) => event.stopPropagation()}>
-          <div style={modalHeaderStyle}>
-            <div>
-              <div style={eyebrowStyle}>{selectedPartner?.partnerCode ?? "-"}</div>
-              <h3 style={modalTitleStyle}>ThinkingData 记录</h3>
-            </div>
-            <button type="button" onClick={() => setThinkingDataOpen(false)} style={closeButtonStyle}>
-              关闭
-            </button>
-          </div>
-
-          <div style={modalToolbarStyle}>
-            <input
-              type="month"
-              value={month}
-              onChange={(event) => setMonth(event.target.value)}
-              style={monthInputStyle}
-            />
-            <button type="button" onClick={loadThinkingDataEvents} style={secondaryButtonStyle}>
-              查询
-            </button>
-            <span style={mutedTextStyle}>UID: {selectedPartner?.uid ?? "-"}</span>
-          </div>
-
-          {thinkingDataError ? <div style={errorStyle}>{thinkingDataError}</div> : null}
-          {thinkingDataLoading ? (
-            <div style={emptyStyle}>ThinkingData 数据加载中...</div>
-          ) : thinkingDataRows.length === 0 ? (
-            <div style={emptyStyle}>当前月份暂无 ThinkingData 记录。</div>
-          ) : (
-            <div style={thinkingDataListStyle}>
-              {thinkingDataRows.map((row, index) => (
-                <div key={index} style={thinkingDataItemStyle}>
-                  <strong>{getThinkingDataEventName(row)}</strong>
-                  <div style={dateTextStyle}>{getThinkingDataEventTime(row)}</div>
-                  <pre style={thinkingDataJsonStyle}>{JSON.stringify(row, null, 2)}</pre>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {thinkingDataHeaders.length > 0 ? (
-            <div style={mutedTextStyle}>字段：{thinkingDataHeaders.join(", ")}</div>
           ) : null}
-        </div>
-      </div>
-    ) : null}
-    {ledgerMode ? (
-      <div style={modalOverlayStyle} onClick={() => setLedgerMode(null)}>
-        <div style={modalStyle} onClick={(event) => event.stopPropagation()}>
-          <div style={modalHeaderStyle}>
-            <div>
-              <div style={eyebrowStyle}>{selectedPartner?.partnerCode ?? "-"}</div>
-              <h3 style={modalTitleStyle}>{ledgerMode === "points" ? "积分明细" : "云币明细"}</h3>
-            </div>
-            <button type="button" onClick={() => setLedgerMode(null)} style={closeButtonStyle}>
-              关闭
-            </button>
-          </div>
 
-          <div style={modalToolbarStyle}>
-            <input
-              type="month"
-              value={month}
-              onChange={(event) => {
-                setMonth(event.target.value);
-                void loadPartners({ q: query, month: event.target.value });
-              }}
-              style={monthInputStyle}
-            />
-            <span style={mutedTextStyle}>{month || "全部月份"}</span>
-          </div>
-
-          {activeLedger.length === 0 ? (
-            <div style={emptyStyle}>该月份暂无明细。</div>
+          {loading ? (
+            <div style={emptyStyle}>加载合伙人数据...</div>
+          ) : partners.length === 0 ? (
+            <div style={emptyStyle}>暂无匹配的合伙人。</div>
           ) : (
-            <div style={ledgerListStyle}>
-              {activeLedger.map((entry) => (
-                <div key={entry.id} style={ledgerItemStyle}>
-                  <div>
-                    <strong>{entry.title}</strong>
-                    <div style={mutedTextStyle}>{entry.description}</div>
-                    <div style={dateTextStyle}>{formatDate(entry.createdAt)}</div>
-                  </div>
-                  <span style={entry.amount < 0 ? deductAmountStyle : amountStyle}>
-                    {entry.amount > 0 ? "+" : ""}
-                    {entry.amount.toLocaleString()}
-                  </span>
-                </div>
-              ))}
+            <div style={tableWrapStyle}>
+              <table style={tableStyle}>
+                <thead>
+                  <tr>
+                    <th style={thStyle}>
+                      <input
+                        type="checkbox"
+                        checked={partners.length > 0 && selectedIds.length === partners.length}
+                        onChange={(event) => toggleAllVisible(event.target.checked)}
+                        aria-label="选择全部可见合伙人"
+                      />
+                    </th>
+                    <th style={thStyle}>合伙人编码</th>
+                    <th style={thStyle}>UID</th>
+                    <th style={thStyle}>账号</th>
+                    <th style={thStyle}>星级</th>
+                    <th style={thStyle}>积分</th>
+                    <th style={thStyle}>云币</th>
+                    <th style={thStyle}>最近登录</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {partners.map((partner) => {
+                    const active = selectedPartner?.id === partner.id;
+                    return (
+                      <tr
+                        key={partner.id}
+                        onClick={() => {
+                          setSelectedId(partner.id);
+                          setLedgerMode(null);
+                        }}
+                        style={{ ...trStyle, ...(active ? activeTrStyle : null) }}
+                      >
+                        <td style={tdStyle} onClick={(event) => event.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.includes(partner.id)}
+                            onChange={() => toggleSelectedId(partner.id)}
+                            aria-label={`选择 ${partner.partnerCode}`}
+                          />
+                        </td>
+                        <td style={tdStrongStyle}>{partner.partnerCode}</td>
+                        <td style={tdStyle}>{partner.uid}</td>
+                        <td style={tdStyle}>{partner.username || partner.email || "-"}</td>
+                        <td style={tdStyle}>{partner.tier.label}</td>
+                        <td style={tdStyle}>{partner.points.toLocaleString()}</td>
+                        <td style={tdStyle}>{partner.cloudCoins.toLocaleString()}</td>
+                        <td style={tdStyle}>{formatDate(partner.lastSignInAt)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
-        </div>
+        </section>
+
+        <aside style={panelStyle}>
+          {selectedPartner ? (
+            <>
+              <div style={detailHeaderStyle}>
+                <div>
+                  <div style={eyebrowStyle}>Partner Detail</div>
+                  <h3 style={detailTitleStyle}>{selectedPartner.partnerCode}</h3>
+                </div>
+                <span style={badgeStyle}>No. {selectedPartner.partnerNumber.toLocaleString()}</span>
+              </div>
+
+              <div style={metricGridStyle}>
+                <Metric label="UID" value={selectedPartner.uid || "-"} />
+                <Metric label="当前 MIR 积分" value={`${selectedPartner.points.toLocaleString()} 分`} />
+                <Metric label="当前星级" value={selectedPartner.tier.label} />
+                <Metric label="当前云币" value={selectedPartner.cloudCoins.toLocaleString()} />
+                <Metric label="最近接入日" value={formatDate(selectedPartner.lastSignInAt)} />
+                <Metric label="账号" value={selectedPartner.username || selectedPartner.email || "-"} />
+              </div>
+
+              <div style={actionRowStyle}>
+                <button type="button" onClick={() => setLedgerMode("points")} style={secondaryButtonStyle}>查看积分明细</button>
+                <button type="button" onClick={() => setLedgerMode("coins")} style={secondaryButtonStyle}>查看云币明细</button>
+              </div>
+
+              {activeTab === "test-order" ? (
+                <form onSubmit={handleCreateTestOrder} style={utilityPanelStyle}>
+                  <PanelTitle eyebrow="Test Order" title="创建测试订单" description="金额会同时增加云币，并按金额 x100 写入 MIR 积分明细。" />
+                  <div style={formGridStyle}>
+                    <input type="number" min="1" value={testAmount} onChange={(event) => setTestAmount(event.target.value)} placeholder="订单金额 / 云币" style={compactInputStyle} />
+                    <input value={testOrderNo} onChange={(event) => setTestOrderNo(event.target.value)} placeholder="测试订单号，可留空自动生成" style={compactInputStyle} />
+                    <input value={testRemark} onChange={(event) => setTestRemark(event.target.value)} placeholder="订单备注" style={compactInputStyle} />
+                    <button type="submit" disabled={creatingTestOrder} style={primaryButtonStyle}>{creatingTestOrder ? "创建中..." : "创建测试订单"}</button>
+                  </div>
+                </form>
+              ) : null}
+            </>
+          ) : (
+            <div style={emptyStyle}>请选择一个合伙人。</div>
+          )}
+        </aside>
       </div>
-    ) : null}
+
+      {ledgerMode ? (
+        <div style={modalOverlayStyle} onClick={() => setLedgerMode(null)}>
+          <div style={modalStyle} onClick={(event) => event.stopPropagation()}>
+            <div style={modalHeaderStyle}>
+              <div>
+                <div style={eyebrowStyle}>{selectedPartner?.partnerCode ?? "-"}</div>
+                <h3 style={modalTitleStyle}>{ledgerMode === "points" ? "积分明细" : "云币明细"}</h3>
+              </div>
+              <button type="button" onClick={() => setLedgerMode(null)} style={closeButtonStyle}>关闭</button>
+            </div>
+            {activeLedger.length === 0 ? (
+              <div style={emptyStyle}>该月份暂无明细。</div>
+            ) : (
+              <div style={ledgerListStyle}>
+                {activeLedger.map((entry) => (
+                  <div key={entry.id} style={ledgerItemStyle}>
+                    <div>
+                      <strong>{entry.title}</strong>
+                      <div style={mutedTextStyle}>{entry.description}</div>
+                      <div style={dateTextStyle}>{formatDate(entry.createdAt)}</div>
+                    </div>
+                    <span style={entry.amount < 0 ? deductAmountStyle : amountStyle}>
+                      {entry.amount > 0 ? "+" : ""}
+                      {entry.amount.toLocaleString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
     </>
+  );
+}
+
+function PanelTitle({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
+  return (
+    <div>
+      <div style={eyebrowStyle}>{eyebrow}</div>
+      <strong>{title}</strong>
+      <div style={mutedTextStyle}>{description}</div>
+    </div>
   );
 }
 
@@ -640,22 +590,6 @@ function Metric({ label, value }: { label: string; value: string }) {
       <div style={metricValueStyle}>{value}</div>
     </div>
   );
-}
-
-function getThinkingDataEventName(row: ThinkingDataEventRow) {
-  return String(row["#event_name"] ?? row.event_name ?? row.eventName ?? "Unknown Event");
-}
-
-function getThinkingDataEventTime(row: ThinkingDataEventRow) {
-  const value =
-    row["#time"] ??
-    row["#event_time"] ??
-    row["#server_time"] ??
-    row.event_time ??
-    row.eventTime ??
-    row.time;
-
-  return value ? String(value) : "-";
 }
 
 function getCurrentMonth() {
@@ -683,420 +617,69 @@ function formatDate(value: string | null) {
 }
 
 function normalizeTab(value: string | null): PartnerTab {
-  return value === "points" || value === "test-order" ? value : "list";
+  return value === "points" || value === "test-order" || value === "coupons" ? value : "list";
 }
 
-const tabsStyle: React.CSSProperties = {
-  display: "flex",
-  gap: "10px",
-  flexWrap: "wrap",
-  marginBottom: "16px",
-};
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
 
-const tabButtonStyle: React.CSSProperties = {
-  border: "1px solid rgba(255,255,255,0.08)",
-  borderRadius: "14px",
-  padding: "12px 16px",
-  background: "rgba(255,255,255,0.04)",
-  color: "#d1d5db",
-  fontWeight: 800,
-  cursor: "pointer",
-};
+function toDateTimeInputValue(date: Date) {
+  const offset = date.getTimezoneOffset();
+  const local = new Date(date.getTime() - offset * 60 * 1000);
+  return local.toISOString().slice(0, 16);
+}
 
-const activeTabButtonStyle: React.CSSProperties = {
-  background: "linear-gradient(90deg, rgba(124,58,237,0.24), rgba(168,85,247,0.18))",
-  border: "1px solid rgba(192,132,252,0.3)",
-  color: "white",
-};
-
-const pageGridStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "minmax(0, 1.35fr) minmax(360px, 0.65fr)",
-  gap: "18px",
-  alignItems: "start",
-};
-
-const panelStyle: React.CSSProperties = {
-  borderRadius: "24px",
-  background: "rgba(16,16,24,0.82)",
-  border: "1px solid rgba(255,255,255,0.08)",
-  boxShadow: "0 20px 40px rgba(0,0,0,0.28)",
-  padding: "20px",
-};
-
-const toolbarStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: "16px",
-  alignItems: "center",
-  flexWrap: "wrap",
-  marginBottom: "16px",
-};
-
-const searchFormStyle: React.CSSProperties = {
-  display: "flex",
-  gap: "10px",
-  flexWrap: "wrap",
-};
-
-const inputStyle: React.CSSProperties = {
-  minWidth: "240px",
-  padding: "12px 14px",
-  borderRadius: "12px",
-  border: "1px solid rgba(255,255,255,0.1)",
-  background: "rgba(255,255,255,0.05)",
-  color: "white",
-  outline: "none",
-};
-
-const monthInputStyle: React.CSSProperties = {
-  ...inputStyle,
-  minWidth: "150px",
-  colorScheme: "dark",
-};
-
-const compactInputStyle: React.CSSProperties = {
-  ...inputStyle,
-  minWidth: 0,
-  width: "100%",
-};
-
-const primaryButtonStyle: React.CSSProperties = {
-  border: "none",
-  borderRadius: "12px",
-  padding: "12px 18px",
-  background: "linear-gradient(90deg, #7c3aed, #a855f7)",
-  color: "white",
-  fontWeight: 800,
-  cursor: "pointer",
-};
-
-const secondaryButtonStyle: React.CSSProperties = {
-  border: "1px solid rgba(192,132,252,0.28)",
-  borderRadius: "12px",
-  padding: "11px 14px",
-  background: "rgba(124,58,237,0.14)",
-  color: "#f5d0fe",
-  fontWeight: 800,
-  cursor: "pointer",
-};
-
-const tableWrapStyle: React.CSSProperties = {
-  overflowX: "auto",
-};
-
-const tableStyle: React.CSSProperties = {
-  width: "100%",
-  borderCollapse: "collapse",
-};
-
-const thStyle: React.CSSProperties = {
-  textAlign: "left",
-  padding: "12px",
-  color: "#c4b5fd",
-  fontSize: "13px",
-  borderBottom: "1px solid rgba(255,255,255,0.08)",
-};
-
-const tdStyle: React.CSSProperties = {
-  padding: "13px 12px",
-  color: "#d1d5db",
-  borderBottom: "1px solid rgba(255,255,255,0.055)",
-  fontSize: "14px",
-};
-
-const tdStrongStyle: React.CSSProperties = {
-  ...tdStyle,
-  color: "white",
-  fontWeight: 800,
-};
-
-const trStyle: React.CSSProperties = {
-  cursor: "pointer",
-};
-
-const activeTrStyle: React.CSSProperties = {
-  background: "rgba(124,58,237,0.15)",
-};
-
-const eyebrowStyle: React.CSSProperties = {
-  color: "#c084fc",
-  fontSize: "12px",
-  fontWeight: 800,
-  letterSpacing: "0.1em",
-  textTransform: "uppercase",
-};
-
-const countStyle: React.CSSProperties = {
-  color: "white",
-  fontSize: "34px",
-};
-
-const mutedTextStyle: React.CSSProperties = {
-  color: "#9ca3af",
-  fontSize: "13px",
-};
-
-const detailHeaderStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: "14px",
-  alignItems: "flex-start",
-  marginBottom: "16px",
-};
-
-const detailTitleStyle: React.CSSProperties = {
-  margin: "8px 0 0",
-  fontSize: "28px",
-};
-
-const badgeStyle: React.CSSProperties = {
-  padding: "8px 12px",
-  borderRadius: "999px",
-  background: "rgba(255,255,255,0.06)",
-  border: "1px solid rgba(255,255,255,0.08)",
-  color: "#e5e7eb",
-  fontWeight: 800,
-  fontSize: "13px",
-};
-
-const metricGridStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-  gap: "10px",
-};
-
-const metricStyle: React.CSSProperties = {
-  padding: "14px",
-  borderRadius: "16px",
-  background: "rgba(255,255,255,0.045)",
-  border: "1px solid rgba(255,255,255,0.06)",
-};
-
-const metricLabelStyle: React.CSSProperties = {
-  color: "#9ca3af",
-  fontSize: "12px",
-  marginBottom: "8px",
-};
-
-const metricValueStyle: React.CSSProperties = {
-  color: "white",
-  fontWeight: 850,
-  wordBreak: "break-word",
-};
-
-const actionRowStyle: React.CSSProperties = {
-  display: "flex",
-  gap: "10px",
-  flexWrap: "wrap",
-  marginTop: "16px",
-};
-
-const ledgerPanelStyle: React.CSSProperties = {
-  marginTop: "16px",
-  paddingTop: "16px",
-  borderTop: "1px solid rgba(255,255,255,0.08)",
-};
-
-const ledgerHeaderStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: "12px",
-  marginBottom: "12px",
-};
-
-const modalOverlayStyle: React.CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  zIndex: 50,
-  display: "grid",
-  placeItems: "center",
-  padding: "24px",
-  background: "rgba(0,0,0,0.62)",
-  backdropFilter: "blur(8px)",
-};
-
-const modalStyle: React.CSSProperties = {
-  width: "min(760px, 100%)",
-  maxHeight: "82vh",
-  overflow: "hidden",
-  borderRadius: "22px",
-  background: "rgba(16,16,24,0.96)",
-  border: "1px solid rgba(255,255,255,0.1)",
-  boxShadow: "0 24px 60px rgba(0,0,0,0.45)",
-  padding: "20px",
-};
-
-const modalHeaderStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "flex-start",
-  justifyContent: "space-between",
-  gap: "16px",
-  marginBottom: "14px",
-};
-
-const modalTitleStyle: React.CSSProperties = {
-  margin: "8px 0 0",
-  fontSize: "26px",
-};
-
-const modalToolbarStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "10px",
-  flexWrap: "wrap",
-  marginBottom: "14px",
-};
-
-const closeButtonStyle: React.CSSProperties = {
-  border: "1px solid rgba(255,255,255,0.08)",
-  borderRadius: "12px",
-  padding: "10px 13px",
-  background: "rgba(255,255,255,0.05)",
-  color: "white",
-  fontWeight: 800,
-  cursor: "pointer",
-};
-
-const thinkingDataListStyle: React.CSSProperties = {
-  display: "grid",
-  gap: "12px",
-  maxHeight: "56vh",
-  overflowY: "auto",
-};
-
-const thinkingDataItemStyle: React.CSSProperties = {
-  display: "grid",
-  gap: "8px",
-  padding: "12px",
-  borderRadius: "12px",
-  background: "rgba(255,255,255,0.045)",
-  border: "1px solid rgba(255,255,255,0.06)",
-};
-
-const thinkingDataJsonStyle: React.CSSProperties = {
-  margin: 0,
-  padding: "12px",
-  borderRadius: "10px",
-  background: "#020617",
-  color: "#dbeafe",
-  fontSize: "12px",
-  lineHeight: 1.5,
-  whiteSpace: "pre-wrap",
-  wordBreak: "break-word",
-};
-
-const ledgerListStyle: React.CSSProperties = {
-  display: "grid",
-  gap: "10px",
-  maxHeight: "56vh",
-  overflowY: "auto",
-};
-
-const ledgerItemStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: "12px",
-  padding: "12px",
-  borderRadius: "14px",
-  background: "rgba(255,255,255,0.04)",
-  border: "1px solid rgba(255,255,255,0.06)",
-};
-
-const amountStyle: React.CSSProperties = {
-  color: "#86efac",
-  fontWeight: 900,
-  whiteSpace: "nowrap",
-};
-
-const deductAmountStyle: React.CSSProperties = {
-  ...amountStyle,
-  color: "#fca5a5",
-};
-
-const dateTextStyle: React.CSSProperties = {
-  color: "#71717a",
-  fontSize: "12px",
-  marginTop: "4px",
-};
-
-const emptyStyle: React.CSSProperties = {
-  padding: "20px",
-  borderRadius: "16px",
-  background: "rgba(255,255,255,0.04)",
-  color: "#a1a1aa",
-  textAlign: "center",
-};
-
-const errorStyle: React.CSSProperties = {
-  padding: "12px",
-  borderRadius: "12px",
-  color: "#fecaca",
-  background: "rgba(239,68,68,0.12)",
-  border: "1px solid rgba(248,113,113,0.2)",
-  marginBottom: "12px",
-};
-
-const successStyle: React.CSSProperties = {
-  padding: "12px",
-  borderRadius: "12px",
-  color: "#bbf7d0",
-  background: "rgba(34,197,94,0.12)",
-  border: "1px solid rgba(74,222,128,0.2)",
-  marginBottom: "12px",
-};
-
-const adjustPanelStyle: React.CSSProperties = {
-  padding: "14px",
-  borderRadius: "18px",
-  background: "rgba(255,255,255,0.035)",
-  border: "1px solid rgba(255,255,255,0.07)",
-  marginBottom: "16px",
-  display: "grid",
-  gap: "12px",
-};
-
-const testOrderPanelStyle: React.CSSProperties = {
-  marginTop: "16px",
-  padding: "14px",
-  borderRadius: "18px",
-  background: "rgba(255,255,255,0.035)",
-  border: "1px solid rgba(255,255,255,0.07)",
-  display: "grid",
-  gap: "10px",
-};
-
-const adjustHeaderStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: "12px",
-  flexWrap: "wrap",
-};
-
-const modeGroupStyle: React.CSSProperties = {
-  display: "flex",
-  gap: "8px",
-};
-
-const modeButtonStyle: React.CSSProperties = {
-  border: "1px solid rgba(255,255,255,0.08)",
-  borderRadius: "12px",
-  padding: "9px 13px",
-  background: "rgba(255,255,255,0.04)",
-  color: "#d1d5db",
-  fontWeight: 800,
-  cursor: "pointer",
-};
-
-const activeModeButtonStyle: React.CSSProperties = {
-  background: "rgba(124,58,237,0.24)",
-  border: "1px solid rgba(192,132,252,0.35)",
-  color: "white",
-};
-
-const adjustFormGridStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "150px minmax(220px, 1fr) auto",
-  gap: "10px",
-};
+const tabsStyle: React.CSSProperties = { display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "16px" };
+const tabButtonStyle: React.CSSProperties = { border: "1px solid rgba(255,255,255,0.08)", borderRadius: "14px", padding: "11px 14px", background: "rgba(255,255,255,0.04)", color: "#d1d5db", fontWeight: 800, cursor: "pointer" };
+const activeTabButtonStyle: React.CSSProperties = { background: "linear-gradient(90deg, rgba(124,58,237,0.24), rgba(168,85,247,0.18))", border: "1px solid rgba(192,132,252,0.3)", color: "#fff" };
+const pageGridStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "minmax(0, 1.35fr) minmax(360px, 0.65fr)", gap: "18px", alignItems: "start" };
+const panelStyle: React.CSSProperties = { padding: "20px", borderRadius: "24px", background: "rgba(16,16,24,0.82)", border: "1px solid rgba(255,255,255,0.08)", boxShadow: "0 18px 38px rgba(0,0,0,0.28)" };
+const toolbarStyle: React.CSSProperties = { display: "flex", justifyContent: "space-between", gap: "14px", alignItems: "center", flexWrap: "wrap", marginBottom: "16px" };
+const eyebrowStyle: React.CSSProperties = { color: "#c084fc", fontSize: "12px", fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase" };
+const countStyle: React.CSSProperties = { fontSize: "32px" };
+const mutedTextStyle: React.CSSProperties = { color: "#9ca3af", fontSize: "13px", lineHeight: 1.6 };
+const searchFormStyle: React.CSSProperties = { display: "flex", gap: "10px", flexWrap: "wrap" };
+const inputStyle: React.CSSProperties = { minWidth: "240px", height: "42px", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "12px", background: "rgba(255,255,255,0.06)", color: "#fff", padding: "0 12px", outline: "none" };
+const monthInputStyle: React.CSSProperties = { ...inputStyle, minWidth: "150px" };
+const compactInputStyle: React.CSSProperties = { height: "42px", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "12px", background: "rgba(255,255,255,0.06)", color: "#fff", padding: "0 12px", outline: "none", minWidth: 0 };
+const primaryButtonStyle: React.CSSProperties = { border: "none", borderRadius: "12px", padding: "0 16px", minHeight: "42px", background: "linear-gradient(90deg, #7c3aed, #a855f7)", color: "#fff", fontWeight: 800, cursor: "pointer" };
+const secondaryButtonStyle: React.CSSProperties = { border: "1px solid rgba(192,132,252,0.28)", borderRadius: "12px", padding: "10px 12px", background: "rgba(124,58,237,0.12)", color: "#f5d0fe", fontWeight: 800, cursor: "pointer" };
+const errorStyle: React.CSSProperties = { padding: "12px", borderRadius: "12px", background: "rgba(239,68,68,0.12)", border: "1px solid rgba(248,113,113,0.22)", color: "#fecaca", marginBottom: "12px" };
+const successStyle: React.CSSProperties = { padding: "12px", borderRadius: "12px", background: "rgba(34,197,94,0.12)", border: "1px solid rgba(74,222,128,0.22)", color: "#bbf7d0", marginBottom: "12px" };
+const utilityPanelStyle: React.CSSProperties = { padding: "14px", borderRadius: "18px", background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.06)", display: "grid", gap: "12px", marginBottom: "16px" };
+const buttonGroupStyle: React.CSSProperties = { display: "flex", gap: "8px", flexWrap: "wrap" };
+const modeButtonStyle: React.CSSProperties = { border: "1px solid rgba(255,255,255,0.08)", borderRadius: "12px", padding: "10px 12px", background: "rgba(255,255,255,0.04)", color: "#d1d5db", fontWeight: 800, cursor: "pointer" };
+const activeModeButtonStyle: React.CSSProperties = { background: "rgba(124,58,237,0.24)", border: "1px solid rgba(192,132,252,0.35)", color: "#fff" };
+const formGridStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "10px" };
+const couponFormGridStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "10px" };
+const packageGridStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "8px" };
+const checkLabelStyle: React.CSSProperties = { display: "flex", alignItems: "center", gap: "8px", color: "#e5e7eb", padding: "9px 10px", borderRadius: "12px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" };
+const emptyStyle: React.CSSProperties = { padding: "22px", borderRadius: "16px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", color: "#9ca3af", textAlign: "center" };
+const tableWrapStyle: React.CSSProperties = { overflowX: "auto" };
+const tableStyle: React.CSSProperties = { width: "100%", borderCollapse: "collapse" };
+const thStyle: React.CSSProperties = { padding: "12px", textAlign: "left", color: "#9ca3af", fontSize: "12px", borderBottom: "1px solid rgba(255,255,255,0.08)", whiteSpace: "nowrap" };
+const tdStyle: React.CSSProperties = { padding: "12px", borderBottom: "1px solid rgba(255,255,255,0.06)", color: "#e5e7eb", whiteSpace: "nowrap" };
+const tdStrongStyle: React.CSSProperties = { ...tdStyle, color: "#fff", fontWeight: 800 };
+const trStyle: React.CSSProperties = { cursor: "pointer" };
+const activeTrStyle: React.CSSProperties = { background: "rgba(124,58,237,0.12)" };
+const detailHeaderStyle: React.CSSProperties = { display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "flex-start", marginBottom: "16px" };
+const detailTitleStyle: React.CSSProperties = { margin: "8px 0 0", fontSize: "28px" };
+const badgeStyle: React.CSSProperties = { borderRadius: "999px", padding: "8px 10px", background: "rgba(255,255,255,0.06)", color: "#e5e7eb", fontSize: "13px", fontWeight: 800 };
+const metricGridStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "10px" };
+const metricStyle: React.CSSProperties = { padding: "12px", borderRadius: "14px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" };
+const metricLabelStyle: React.CSSProperties = { color: "#9ca3af", fontSize: "12px" };
+const metricValueStyle: React.CSSProperties = { marginTop: "6px", color: "#fff", fontSize: "16px", fontWeight: 800, overflowWrap: "anywhere" };
+const actionRowStyle: React.CSSProperties = { display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "16px", marginBottom: "16px" };
+const modalOverlayStyle: React.CSSProperties = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.72)", zIndex: 30, padding: "24px", display: "grid", placeItems: "center" };
+const modalStyle: React.CSSProperties = { width: "min(760px, 100%)", maxHeight: "82vh", overflowY: "auto", borderRadius: "22px", background: "#11111a", border: "1px solid rgba(255,255,255,0.08)", padding: "22px" };
+const modalHeaderStyle: React.CSSProperties = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", marginBottom: "16px" };
+const modalTitleStyle: React.CSSProperties = { margin: "6px 0 0", fontSize: "24px" };
+const closeButtonStyle: React.CSSProperties = { border: "1px solid rgba(255,255,255,0.08)", borderRadius: "12px", padding: "10px 12px", background: "rgba(255,255,255,0.04)", color: "#fff", fontWeight: 800, cursor: "pointer" };
+const ledgerListStyle: React.CSSProperties = { display: "grid", gap: "10px" };
+const ledgerItemStyle: React.CSSProperties = { padding: "14px", borderRadius: "14px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", display: "flex", justifyContent: "space-between", gap: "14px", alignItems: "center" };
+const dateTextStyle: React.CSSProperties = { color: "#6b7280", fontSize: "12px", marginTop: "4px" };
+const amountStyle: React.CSSProperties = { color: "#86efac", fontWeight: 900, fontSize: "18px" };
+const deductAmountStyle: React.CSSProperties = { color: "#fca5a5", fontWeight: 900, fontSize: "18px" };

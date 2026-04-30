@@ -6,7 +6,7 @@ type Props = {
   title: string;
   description: string;
   section: "dashboard" | "banners" | "accounts" | "posts" | "partners";
-  partnerSubsection?: "list" | "points" | "test-order";
+  partnerSubsection?: "list" | "points" | "test-order" | "coupons";
   children: React.ReactNode;
 };
 
@@ -19,6 +19,7 @@ const partnerNavItems = [
   { href: "/partners?tab=list", key: "list", label: "Partner List" },
   { href: "/partners?tab=points", key: "points", label: "Point Adjustment" },
   { href: "/partners?tab=test-order", key: "test-order", label: "Test Orders" },
+  { href: "/partners?tab=coupons", key: "coupons", label: "Coupons" },
 ] as const;
 
 const contentNavItems = [
