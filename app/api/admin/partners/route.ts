@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminSessionUser } from "@/lib/auth";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   appendAdminTestRechargeOrder,
   appendManualPointAdjustment,
   buildPartnerRecords,
   filterLedgerByMonth,
 } from "@/lib/partners";
+import { changeQuickSdkPlatformCoins } from "@/lib/quicksdk";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export async function GET(request: NextRequest) {
   try {
@@ -123,7 +124,6 @@ export async function PATCH(request: NextRequest) {
   }
 
   const failed = results.filter((result) => !result.success);
-
   return NextResponse.json(
     {
       success: failed.length === 0,
@@ -147,6 +147,8 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
   const userId = String(body?.userId ?? "").trim();
   const amount = Math.floor(Number(body?.amount ?? 0));
+  const issueToSdk = body?.issueToSdk === true;
+  const sdkConfirm = String(body?.sdkConfirm ?? "").trim();
   const remark = String(body?.remark ?? "").trim() || "管理员测试订单";
   const orderNo =
     String(body?.orderNo ?? "").trim() ||
@@ -160,8 +162,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ message: "请输入大于 0 的订单金额。" }, { status: 400 });
   }
 
-  const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
+  if (issueToSdk && sdkConfirm !== "CONFIRM") {
+    return NextResponse.json({ message: "实际发放到 SDK 钱包需要输入 CONFIRM。" }, { status: 400 });
+  }
 
+  const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
   if (error || !data.user) {
     return NextResponse.json(
       { message: error?.message ?? "User not found" },
@@ -181,11 +186,26 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ message: "该测试订单号已存在。" }, { status: 409 });
   }
 
+  const sdkUid = String(data.user.user_metadata?.quicksdk_uid ?? "").trim();
+  let sdkWalletAmount: number | null = null;
+
+  if (issueToSdk) {
+    if (!sdkUid) {
+      return NextResponse.json({ message: "该用户缺少 QuickSDK UID，无法发放到 SDK 钱包。" }, { status: 400 });
+    }
+
+    sdkWalletAmount = await changeQuickSdkPlatformCoins({
+      userId: sdkUid,
+      amount: String(amount),
+      remark: `${remark} / ${orderNo} / admin real SDK issue`,
+    });
+  }
+
   const testOrder = appendAdminTestRechargeOrder({
     metadata: data.user.user_metadata,
     amount,
     orderNo,
-    remark,
+    remark: issueToSdk ? `${remark} / SDK 钱包已实发` : remark,
     adminEmail: adminUser.email ?? adminUser.id,
   });
 
@@ -205,6 +225,8 @@ export async function POST(request: NextRequest) {
     orderNo: testOrder.orderNo,
     amount,
     awardedPoints: testOrder.awardedPoints,
+    sdkIssued: issueToSdk,
+    sdkWalletAmount,
     beforePoints: testOrder.beforePoints,
     afterPoints: testOrder.afterPoints,
     beforeCoins: testOrder.beforeCoins,

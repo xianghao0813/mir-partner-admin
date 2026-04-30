@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminSessionUser } from "@/lib/auth";
 import { appendAdminCouponTestOrder } from "@/lib/partners";
+import { changeQuickSdkPlatformCoins } from "@/lib/quicksdk";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 type CouponRecord = {
@@ -41,6 +42,8 @@ export async function POST(request: NextRequest) {
   const userId = String(body?.userId ?? "").trim();
   const couponId = String(body?.couponId ?? "").trim();
   const packageId = Math.floor(Number(body?.packageId ?? 0));
+  const issueToSdk = body?.issueToSdk === true;
+  const sdkConfirm = String(body?.sdkConfirm ?? "").trim();
   const remark = String(body?.remark ?? "").trim() || "管理员优惠券测试订单";
   const orderNo =
     String(body?.orderNo ?? "").trim() ||
@@ -57,6 +60,10 @@ export async function POST(request: NextRequest) {
 
   if (!selectedPackage) {
     return NextResponse.json({ message: "请选择有效的云币商品。" }, { status: 400 });
+  }
+
+  if (issueToSdk && sdkConfirm !== "CONFIRM") {
+    return NextResponse.json({ message: "实际发放到 SDK 钱包需要输入 CONFIRM。" }, { status: 400 });
   }
 
   const { data: couponData, error: couponError } = await supabaseAdmin
@@ -88,12 +95,27 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ message: userError?.message ?? "User not found" }, { status: 404 });
   }
 
+  const sdkUid = String(userData.user.user_metadata?.quicksdk_uid ?? "").trim();
+  let sdkWalletAmount: number | null = null;
+
+  if (issueToSdk) {
+    if (!sdkUid) {
+      return NextResponse.json({ message: "该用户缺少 QuickSDK UID，无法发放到 SDK 钱包。" }, { status: 400 });
+    }
+
+    sdkWalletAmount = await changeQuickSdkPlatformCoins({
+      userId: sdkUid,
+      amount: String(selectedPackage.coins),
+      remark: `${remark} / ${orderNo} / coupon test SDK issue`,
+    });
+  }
+
   const paidAmount = applyDiscount(selectedPackage.amount, coupon);
   const result = appendAdminCouponTestOrder({
     metadata: userData.user.user_metadata,
     orderNo,
     adminEmail: adminUser.email ?? adminUser.id,
-    remark,
+    remark: issueToSdk ? `${remark} / SDK 钱包已实发` : remark,
     originalAmount: selectedPackage.amount,
     paidAmount,
     coins: selectedPackage.coins,
@@ -131,6 +153,8 @@ export async function POST(request: NextRequest) {
     paidAmount,
     coins: selectedPackage.coins,
     awardedPoints: result.awardedPoints,
+    sdkIssued: issueToSdk,
+    sdkWalletAmount,
     beforePoints: result.beforePoints,
     afterPoints: result.afterPoints,
     beforeCoins: result.beforeCoins,

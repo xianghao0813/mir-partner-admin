@@ -88,6 +88,8 @@ export default function PartnersManagerClient() {
   const [testCouponId, setTestCouponId] = useState("");
   const [testPackageId, setTestPackageId] = useState("1");
   const [coupons, setCoupons] = useState<CouponItem[]>([]);
+  const [issueToSdk, setIssueToSdk] = useState(false);
+  const [sdkConfirm, setSdkConfirm] = useState("");
   const [creatingTestOrder, setCreatingTestOrder] = useState(false);
 
   const [couponTitle, setCouponTitle] = useState("云币充值优惠券");
@@ -291,12 +293,16 @@ export default function PartnersManagerClient() {
                 userId: selectedPartner.id,
                 couponId: testCouponId,
                 packageId: Number(testPackageId),
+                issueToSdk,
+                sdkConfirm,
                 orderNo: testOrderNo,
                 remark: testRemark || "管理员优惠券测试订单",
               }
             : {
                 userId: selectedPartner.id,
                 amount,
+                issueToSdk,
+                sdkConfirm,
                 orderNo: testOrderNo,
                 remark: testRemark,
               }
@@ -316,6 +322,8 @@ export default function PartnersManagerClient() {
       setTestOrderNo("");
       setTestRemark("管理员测试订单");
       setTestCouponId("");
+      setIssueToSdk(false);
+      setSdkConfirm("");
       await loadPartners({ q: query, month });
       await loadCoupons(selectedPartner.id);
       setLedgerMode("points");
@@ -463,7 +471,7 @@ export default function PartnersManagerClient() {
               <div style={couponFormGridStyle}>
                 <input value={couponTitle} onChange={(event) => setCouponTitle(event.target.value)} placeholder="优惠券名称" style={compactInputStyle} />
                 <input value={couponDescription} onChange={(event) => setCouponDescription(event.target.value)} placeholder="说明" style={compactInputStyle} />
-                <select value={couponDiscountType} onChange={(event) => setCouponDiscountType(event.target.value === "percent" ? "percent" : "amount")} style={compactInputStyle}>
+                <select value={couponDiscountType} onChange={(event) => setCouponDiscountType(event.target.value === "percent" ? "percent" : "amount")} style={selectStyle}>
                   <option value="amount">固定金额立减</option>
                   <option value="percent">百分比折扣</option>
                 </select>
@@ -586,7 +594,7 @@ export default function PartnersManagerClient() {
                 <form onSubmit={handleCreateTestOrder} style={utilityPanelStyle}>
                   <PanelTitle eyebrow="Test Order" title="创建测试订单" description="可创建普通测试订单，也可以选择未使用优惠券模拟一次优惠券支付。" />
                   <div style={formGridStyle}>
-                    <select value={testCouponId} onChange={(event) => setTestCouponId(event.target.value)} style={compactInputStyle}>
+                    <select value={testCouponId} onChange={(event) => setTestCouponId(event.target.value)} style={selectStyle}>
                       <option value="">不使用优惠券</option>
                       {coupons
                         .filter((coupon) => coupon.status === "unused")
@@ -597,7 +605,7 @@ export default function PartnersManagerClient() {
                         ))}
                     </select>
                     {testCouponId ? (
-                      <select value={testPackageId} onChange={(event) => setTestPackageId(event.target.value)} style={compactInputStyle}>
+                      <select value={testPackageId} onChange={(event) => setTestPackageId(event.target.value)} style={selectStyle}>
                         {packageOptions.map((item) => (
                           <option key={item.id} value={item.id}>
                             {item.label}
@@ -609,10 +617,34 @@ export default function PartnersManagerClient() {
                     )}
                     <input value={testOrderNo} onChange={(event) => setTestOrderNo(event.target.value)} placeholder="测试订单号，可留空自动生成" style={compactInputStyle} />
                     <input value={testRemark} onChange={(event) => setTestRemark(event.target.value)} placeholder="订单备注" style={compactInputStyle} />
+                    <label style={sdkIssueToggleStyle}>
+                      <input
+                        type="checkbox"
+                        checked={issueToSdk}
+                        onChange={(event) => {
+                          setIssueToSdk(event.target.checked);
+                          if (!event.target.checked) {
+                            setSdkConfirm("");
+                          }
+                        }}
+                      />
+                      同时真实发放到 QuickSDK 钱包
+                    </label>
+                    {issueToSdk ? (
+                      <input
+                        value={sdkConfirm}
+                        onChange={(event) => setSdkConfirm(event.target.value)}
+                        placeholder="输入 CONFIRM 确认真实发放"
+                        style={dangerInputStyle}
+                      />
+                    ) : null}
                     <button type="submit" disabled={creatingTestOrder} style={primaryButtonStyle}>{creatingTestOrder ? "创建中..." : testCouponId ? "创建优惠券测试订单" : "创建测试订单"}</button>
                   </div>
                   {testCouponId ? (
                     <div style={mutedTextStyle}>优惠券测试订单会将所选优惠券标记为已使用，并按折后实付金额发放 MIR 积分。</div>
+                  ) : null}
+                  {issueToSdk ? (
+                    <div style={dangerTextStyle}>注意：该操作会真实增加用户 QuickSDK 钱包余额，不能自动撤销。</div>
                   ) : null}
                 </form>
               ) : null}
@@ -737,6 +769,10 @@ const searchFormStyle: React.CSSProperties = { display: "flex", gap: "10px", fle
 const inputStyle: React.CSSProperties = { minWidth: "240px", height: "42px", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "12px", background: "rgba(255,255,255,0.06)", color: "#fff", padding: "0 12px", outline: "none" };
 const monthInputStyle: React.CSSProperties = { ...inputStyle, minWidth: "150px" };
 const compactInputStyle: React.CSSProperties = { height: "42px", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "12px", background: "rgba(255,255,255,0.06)", color: "#fff", padding: "0 12px", outline: "none", minWidth: 0 };
+const selectStyle: React.CSSProperties = { ...compactInputStyle, colorScheme: "dark", backgroundColor: "#181824", color: "#fff" };
+const dangerInputStyle: React.CSSProperties = { ...compactInputStyle, border: "1px solid rgba(248,113,113,0.45)", background: "rgba(127,29,29,0.18)" };
+const sdkIssueToggleStyle: React.CSSProperties = { display: "flex", alignItems: "center", gap: "8px", minHeight: "42px", padding: "0 12px", borderRadius: "12px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(248,113,113,0.24)", color: "#fecaca", fontWeight: 800 };
+const dangerTextStyle: React.CSSProperties = { color: "#fecaca", fontSize: "13px", lineHeight: 1.6 };
 const primaryButtonStyle: React.CSSProperties = { border: "none", borderRadius: "12px", padding: "0 16px", minHeight: "42px", background: "linear-gradient(90deg, #7c3aed, #a855f7)", color: "#fff", fontWeight: 800, cursor: "pointer" };
 const secondaryButtonStyle: React.CSSProperties = { border: "1px solid rgba(192,132,252,0.28)", borderRadius: "12px", padding: "10px 12px", background: "rgba(124,58,237,0.12)", color: "#f5d0fe", fontWeight: 800, cursor: "pointer" };
 const errorStyle: React.CSSProperties = { padding: "12px", borderRadius: "12px", background: "rgba(239,68,68,0.12)", border: "1px solid rgba(248,113,113,0.22)", color: "#fecaca", marginBottom: "12px" };
