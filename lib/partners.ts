@@ -120,6 +120,12 @@ export function appendManualPointAdjustment({
 }) {
   const beforePoints = readMirPoints(metadata);
   const afterPoints = Math.max(0, beforePoints + delta);
+  const beforeTier = getCurrentTier(beforePoints);
+  const afterTier = getCurrentTier(afterPoints);
+  const monthKey = getShanghaiMonthKey(now);
+  const currentMonthlyPoints = readMonthlyPoints(metadata, monthKey);
+  const monthlyAdjustmentPoints = Math.max(0, delta);
+  const upgradedThisAdjustment = afterTier.id > beforeTier.id;
   const transaction = {
     id: `manual-${now.getTime()}-${Math.abs(delta)}`,
     type: delta >= 0 ? "manual_add" : "manual_deduct",
@@ -140,7 +146,13 @@ export function appendManualPointAdjustment({
     metadata: {
       ...(metadata ?? {}),
       mir_points: afterPoints,
-      mir_last_tier_id: getCurrentTier(afterPoints).id,
+      mir_month_key: monthKey,
+      mir_month_points: currentMonthlyPoints + monthlyAdjustmentPoints,
+      mir_last_tier_id: afterTier.id,
+      mir_upgraded_month_key:
+        upgradedThisAdjustment
+          ? monthKey
+          : readString(metadata?.mir_upgraded_month_key) || undefined,
       mir_last_point_source: "admin_manual_adjustment",
       mir_last_point_award: delta,
       mir_last_point_awarded_at: now.toISOString(),
