@@ -5,7 +5,7 @@ import { getAdminSessionUser } from "@/lib/auth";
 type Props = {
   title: string;
   description: string;
-  section: "dashboard" | "banners" | "accounts" | "posts" | "partners";
+  section: "dashboard" | "banners" | "accounts" | "posts" | "partners" | "analytics";
   partnerSubsection?: "list" | "points" | "test-order" | "coupons";
   children: React.ReactNode;
 };
@@ -13,6 +13,7 @@ type Props = {
 const navItems = [
   { href: "/dashboard", key: "dashboard", label: "Dashboard" },
   { href: "/accounts", key: "accounts", label: "Accounts" },
+  { href: "/analytics", key: "analytics", label: "Data Analytics" },
 ] as const;
 
 const partnerNavItems = [

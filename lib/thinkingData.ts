@@ -66,23 +66,34 @@ export function buildUserEventSql({
   uid,
   month,
   limit,
+  eventKeyword,
 }: {
   projectId: number;
   uid: string;
   month: string;
   limit: number;
+  eventKeyword?: string;
 }) {
   const tableName = `v_event_${projectId}`;
   const safeUid = escapeSqlValue(uid);
   const { startDate, endDate } = getMonthRange(month);
   const safeLimit = Math.min(500, Math.max(1, Math.floor(limit)));
 
+  const conditions = [
+    `"$part_date" >= '${startDate}'`,
+    `"$part_date" <= '${endDate}'`,
+    `("#account_id" = '${safeUid}' or "#distinct_id" = '${safeUid}')`,
+  ];
+  const safeEventKeyword = eventKeyword?.trim() ? escapeSqlLikeValue(eventKeyword.trim()) : "";
+
+  if (safeEventKeyword) {
+    conditions.push(`lower(toString("#event_name")) like lower('%${safeEventKeyword}%')`);
+  }
+
   return [
     `select *`,
     `from ${tableName}`,
-    `where "$part_date" >= '${startDate}'`,
-    `and "$part_date" <= '${endDate}'`,
-    `and ("#account_id" = '${safeUid}' or "#distinct_id" = '${safeUid}')`,
+    `where ${conditions.join(" and ")}`,
     `limit ${safeLimit}`,
   ].join(" ");
 }
@@ -180,4 +191,8 @@ function getCurrentMonth() {
 
 function escapeSqlValue(value: string) {
   return value.replace(/'/g, "''");
+}
+
+function escapeSqlLikeValue(value: string) {
+  return escapeSqlValue(value).replace(/[%_]/g, (match) => `\\${match}`);
 }

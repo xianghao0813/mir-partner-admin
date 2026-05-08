@@ -18,6 +18,7 @@ export async function GET(request: NextRequest) {
     const uid = searchParams.get("uid")?.trim() ?? "";
     const month = searchParams.get("month")?.trim() ?? "";
     const limit = Number(searchParams.get("limit") ?? 100);
+    const eventKeyword = searchParams.get("eventKeyword")?.trim() ?? "";
     const config = getThinkingDataConfig();
 
     if (!uid) {
@@ -29,6 +30,7 @@ export async function GET(request: NextRequest) {
       uid,
       month,
       limit: Number.isFinite(limit) ? limit : 100,
+      eventKeyword,
     });
     const result = await queryThinkingDataSql({
       sql,
