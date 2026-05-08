@@ -14,7 +14,7 @@ type QuickSdkApiResponse = {
   message?: string;
 };
 
-const QUICKSDK_DEFAULT_BASE_URL = "https://sdkapi.gamewemade.com";
+const QUICKSDK_DEFAULT_BASE_URL = "http://custom-sdkapi.gamewemade.com";
 const QUICKSDK_DEFAULT_CHANNEL_CODE = "website";
 
 export async function changeQuickSdkPlatformCoins({
