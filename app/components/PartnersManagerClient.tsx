@@ -23,6 +23,9 @@ type PartnerRecord = {
   points: number;
   tier: { id: number; label: string; minPoints: number };
   cloudCoins: number;
+  realNameVerified: boolean;
+  phone: string;
+  maskedPhone: string;
   lastSignInAt: string | null;
   createdAt: string | null;
   pointTransactions: LedgerEntry[];
@@ -526,6 +529,8 @@ export default function PartnersManagerClient() {
                     <th style={thStyle}>星级</th>
                     <th style={thStyle}>积分</th>
                     <th style={thStyle}>云币</th>
+                    <th style={thStyle}>实名认证</th>
+                    <th style={thStyle}>手机号</th>
                     <th style={thStyle}>最近登录</th>
                   </tr>
                 </thead>
@@ -555,6 +560,8 @@ export default function PartnersManagerClient() {
                         <td style={tdStyle}>{partner.tier.label}</td>
                         <td style={tdStyle}>{partner.points.toLocaleString()}</td>
                         <td style={tdStyle}>{partner.cloudCoins.toLocaleString()}</td>
+                        <td style={tdStyle}>{partner.realNameVerified ? "已认证" : "未认证"}</td>
+                        <td style={tdStyle}>{partner.maskedPhone || "-"}</td>
                         <td style={tdStyle}>{formatDate(partner.lastSignInAt)}</td>
                       </tr>
                     );
@@ -581,6 +588,8 @@ export default function PartnersManagerClient() {
                 <Metric label="当前 MIR 积分" value={`${selectedPartner.points.toLocaleString()} 分`} />
                 <Metric label="当前星级" value={selectedPartner.tier.label} />
                 <Metric label="当前云币" value={selectedPartner.cloudCoins.toLocaleString()} />
+                <Metric label="实名认证" value={selectedPartner.realNameVerified ? "已认证" : "未认证"} />
+                <Metric label="手机号" value={selectedPartner.maskedPhone || "-"} />
                 <Metric label="最近接入日" value={formatDate(selectedPartner.lastSignInAt)} />
                 <Metric label="账号" value={selectedPartner.username || selectedPartner.email || "-"} />
               </div>

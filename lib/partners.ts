@@ -28,6 +28,9 @@ export type PartnerRecord = {
   points: number;
   tier: PartnerTier;
   cloudCoins: number;
+  realNameVerified: boolean;
+  phone: string;
+  maskedPhone: string;
   lastSignInAt: string | null;
   createdAt: string | null;
   pointTransactions: LedgerEntry[];
@@ -65,6 +68,9 @@ export function buildPartnerRecord(user: User, partnerNumber: number): PartnerRe
     points,
     tier: getCurrentTier(points),
     cloudCoins: readCloudCoins(metadata),
+    realNameVerified: readBoolean(metadata?.real_name_verified) || readBoolean(metadata?.id_verified) || readBoolean(metadata?.is_real_name_auth),
+    phone: readString(metadata?.mobile) || readString(metadata?.phone) || readString(metadata?.bound_phone),
+    maskedPhone: maskPhone(readString(metadata?.mobile) || readString(metadata?.phone) || readString(metadata?.bound_phone)),
     lastSignInAt: user.last_sign_in_at ?? null,
     createdAt: user.created_at ?? null,
     pointTransactions: readPointTransactions(metadata),
@@ -447,6 +453,24 @@ function readNumber(value: unknown) {
 
 function readString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function readBoolean(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    return normalized === "1" || normalized === "true" || normalized === "yes";
+  }
+  return false;
+}
+
+function maskPhone(phone: string) {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length < 7) {
+    return phone ? "****" : "";
+  }
+  return `${digits.slice(0, 3)}****${digits.slice(-4)}`;
 }
 
 function readValidPartnerCode(value: unknown) {
