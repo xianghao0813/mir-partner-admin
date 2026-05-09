@@ -68,7 +68,11 @@ export function buildPartnerRecord(user: User, partnerNumber: number): PartnerRe
     points,
     tier: getCurrentTier(points),
     cloudCoins: readCloudCoins(metadata),
-    realNameVerified: readBoolean(metadata?.real_name_verified) || readBoolean(metadata?.id_verified) || readBoolean(metadata?.is_real_name_auth),
+    realNameVerified:
+      readBoolean(metadata?.real_name_verified) ||
+      readBoolean(metadata?.id_verified) ||
+      readBoolean(metadata?.is_real_name_auth) ||
+      readNumber(metadata?.time_left) === -1,
     phone: readString(metadata?.mobile) || readString(metadata?.phone) || readString(metadata?.bound_phone),
     maskedPhone: maskPhone(readString(metadata?.mobile) || readString(metadata?.phone) || readString(metadata?.bound_phone)),
     lastSignInAt: user.last_sign_in_at ?? null,
