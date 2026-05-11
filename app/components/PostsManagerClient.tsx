@@ -64,6 +64,7 @@ export default function PostsManagerClient({ currentAdminEmail }: Props) {
   const [category, setCategory] = useState<Notice["category"]>("latest");
   const [gameSlug, setGameSlug] = useState("");
   const [thumbnailUrl, setThumbnailUrl] = useState("");
+  const [uploadingThumbnail, setUploadingThumbnail] = useState(false);
   const [showOnHome, setShowOnHome] = useState(true);
   const [publishMode, setPublishMode] = useState<Notice["publishMode"]>("publish");
   const [scheduledAt, setScheduledAt] = useState("");
@@ -107,6 +108,7 @@ export default function PostsManagerClient({ currentAdminEmail }: Props) {
     setCategory("latest");
     setGameSlug("");
     setThumbnailUrl("");
+    setUploadingThumbnail(false);
     setShowOnHome(true);
     setPublishMode("publish");
     setScheduledAt("");
@@ -210,6 +212,38 @@ export default function PostsManagerClient({ currentAdminEmail }: Props) {
       setError(submitError instanceof Error ? submitError.message : "Failed to save notice");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleThumbnailUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    setError("");
+    setMessage("");
+    setUploadingThumbnail(true);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch(adminPath("/api/admin/uploads"), {
+        method: "POST",
+        body: formData,
+      });
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(json?.message ?? "Failed to upload image");
+      }
+
+      setThumbnailUrl(String(json?.url ?? ""));
+      setMessage("缩略图已上传。");
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : "Failed to upload image");
+    } finally {
+      setUploadingThumbnail(false);
     }
   }
 
@@ -326,6 +360,20 @@ export default function PostsManagerClient({ currentAdminEmail }: Props) {
               placeholder="缩略图 URL"
               style={inputStyle}
             />
+
+            <div style={uploadRowStyle}>
+              <label style={uploadButtonStyle}>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  onChange={(event) => void handleThumbnailUpload(event)}
+                  disabled={uploadingThumbnail}
+                  style={hiddenFileInputStyle}
+                />
+                {uploadingThumbnail ? "上传中..." : "上传缩略图"}
+              </label>
+              <span style={uploadHintStyle}>JPG, PNG, WEBP, GIF / 最大 5MB</span>
+            </div>
 
             <textarea
               value={content}
@@ -561,6 +609,37 @@ const inputStyle: React.CSSProperties = {
   background: "rgba(0,0,0,0.24)",
   color: "white",
   boxSizing: "border-box",
+};
+
+const uploadRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "12px",
+  flexWrap: "wrap",
+};
+
+const uploadButtonStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  minHeight: "42px",
+  padding: "0 16px",
+  borderRadius: "13px",
+  border: "1px solid rgba(250,204,21,0.28)",
+  background: "rgba(250,204,21,0.12)",
+  color: "#fde68a",
+  fontSize: "14px",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+const hiddenFileInputStyle: React.CSSProperties = {
+  display: "none",
+};
+
+const uploadHintStyle: React.CSSProperties = {
+  color: "#9ca3af",
+  fontSize: "12px",
 };
 
 const twoColStyle: React.CSSProperties = {
