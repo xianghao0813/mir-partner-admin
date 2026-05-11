@@ -42,6 +42,9 @@ const publishModeLabelMap = {
   scheduled: "预约发布",
 } as const;
 
+const MAX_THUMBNAIL_SIZE = 5 * 1024 * 1024;
+const ALLOWED_THUMBNAIL_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+
 const filterTabs = [
   { key: "all", label: "全部" },
   { key: "draft", label: "草稿" },
@@ -222,6 +225,17 @@ export default function PostsManagerClient({ currentAdminEmail }: Props) {
 
     setError("");
     setMessage("");
+
+    if (!ALLOWED_THUMBNAIL_TYPES.has(file.type)) {
+      setError("只支持 JPG、PNG、WEBP 或 GIF 图片。");
+      return;
+    }
+
+    if (file.size > MAX_THUMBNAIL_SIZE) {
+      setError("图片不能超过 5MB。");
+      return;
+    }
+
     setUploadingThumbnail(true);
 
     try {
@@ -232,10 +246,15 @@ export default function PostsManagerClient({ currentAdminEmail }: Props) {
         method: "POST",
         body: formData,
       });
-      const json = await res.json().catch(() => null);
+      const json = await res.json().catch(() => null) as {
+        message?: string;
+        error?: string;
+        url?: string;
+      } | null;
 
       if (!res.ok) {
-        throw new Error(json?.message ?? "Failed to upload image");
+        const detail = [json?.message, json?.error].filter(Boolean).join(" ");
+        throw new Error(detail || `Failed to upload image. HTTP ${res.status}`);
       }
 
       setThumbnailUrl(String(json?.url ?? ""));
