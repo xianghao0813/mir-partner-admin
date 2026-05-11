@@ -42,7 +42,9 @@ const publishModeLabelMap = {
   scheduled: "预约发布",
 } as const;
 
-const MAX_THUMBNAIL_SIZE = 5 * 1024 * 1024;
+const MAX_ORIGINAL_THUMBNAIL_SIZE = 12 * 1024 * 1024;
+const MAX_UPLOAD_THUMBNAIL_SIZE = 1536 * 1024;
+const THUMBNAIL_MAX_DIMENSION = 1600;
 const ALLOWED_THUMBNAIL_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 
 const filterTabs = [
@@ -231,16 +233,22 @@ export default function PostsManagerClient({ currentAdminEmail }: Props) {
       return;
     }
 
-    if (file.size > MAX_THUMBNAIL_SIZE) {
-      setError("图片不能超过 5MB。");
+    if (file.size > MAX_ORIGINAL_THUMBNAIL_SIZE) {
+      setError("原始图片不能超过 12MB。");
+      return;
+    }
+
+    if (file.type === "image/gif" && file.size > MAX_UPLOAD_THUMBNAIL_SIZE) {
+      setError("GIF 图片不能超过 1.5MB。JPG、PNG、WEBP 会自动压缩。");
       return;
     }
 
     setUploadingThumbnail(true);
 
     try {
+      const uploadFile = await prepareThumbnailFile(file);
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append("file", uploadFile);
 
       const res = await fetch(adminPath("/api/admin/uploads"), {
         method: "POST",
@@ -258,7 +266,7 @@ export default function PostsManagerClient({ currentAdminEmail }: Props) {
       }
 
       setThumbnailUrl(String(json?.url ?? ""));
-      setMessage("缩略图已上传。");
+      setMessage(uploadFile.size < file.size ? "缩略图已压缩并上传。" : "缩略图已上传。");
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "Failed to upload image");
     } finally {
@@ -391,7 +399,7 @@ export default function PostsManagerClient({ currentAdminEmail }: Props) {
                 />
                 {uploadingThumbnail ? "上传中..." : "上传缩略图"}
               </label>
-              <span style={uploadHintStyle}>JPG, PNG, WEBP, GIF / 最大 5MB</span>
+              <span style={uploadHintStyle}>JPG, PNG, WEBP 自动压缩 / GIF 最大 1.5MB</span>
             </div>
 
             <textarea
@@ -564,6 +572,60 @@ function PreviewCard({ notice }: { notice: Notice | null }) {
       </div>
     </div>
   );
+}
+
+async function prepareThumbnailFile(file: File) {
+  if (file.type === "image/gif" || file.size <= MAX_UPLOAD_THUMBNAIL_SIZE) {
+    return file;
+  }
+
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, THUMBNAIL_MAX_DIMENSION / Math.max(bitmap.width, bitmap.height));
+  const width = Math.max(1, Math.round(bitmap.width * scale));
+  const height = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    bitmap.close();
+    return file;
+  }
+
+  context.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close();
+
+  const qualities = [0.86, 0.78, 0.68, 0.58, 0.48];
+  for (const quality of qualities) {
+    const blob = await canvasToBlob(canvas, "image/jpeg", quality);
+    if (blob.size <= MAX_UPLOAD_THUMBNAIL_SIZE || quality === qualities[qualities.length - 1]) {
+      return new File([blob], replaceFileExtension(file.name, "jpg"), { type: "image/jpeg" });
+    }
+  }
+
+  return file;
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number) {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) {
+          resolve(blob);
+        } else {
+          reject(new Error("Failed to compress image"));
+        }
+      },
+      type,
+      quality
+    );
+  });
+}
+
+function replaceFileExtension(fileName: string, extension: string) {
+  const baseName = fileName.replace(/\.[^.]+$/, "");
+  return `${baseName || "thumbnail"}.${extension}`;
 }
 
 function formatDateTime(value: string | null) {

@@ -5,7 +5,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 export const runtime = "nodejs";
 
 const BUCKET_NAME = process.env.SUPABASE_POST_IMAGES_BUCKET || "post-images";
-const MAX_FILE_SIZE = 5 * 1024 * 1024;
+const MAX_FILE_SIZE = 1536 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 
 export async function POST(req: NextRequest) {
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
 
   if (file.size > MAX_FILE_SIZE) {
     return NextResponse.json(
-      { message: "Image must be 5MB or smaller." },
+      { message: "Image must be 1.5MB or smaller." },
       { status: 400 }
     );
   }
