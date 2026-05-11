@@ -5,7 +5,7 @@ const memoryStorage = new Map<string, string>();
 
 function getUserStorage() {
   if (typeof window !== "undefined") {
-    return window.localStorage;
+    return window.sessionStorage;
   }
 
   return {
@@ -63,10 +63,12 @@ export function createClient() {
               `SameSite=${options.sameSite ?? ADMIN_AUTH_COOKIE_OPTIONS.sameSite}`,
             ];
 
-            if (typeof options.maxAge === "number") {
+            if (typeof options.maxAge === "number" && options.maxAge <= 0) {
               parts.push(`Max-Age=${options.maxAge}`);
             }
-            if (options.expires) {
+            if (options.maxAge && options.maxAge > 0) {
+              // Keep auth cookies scoped to the browser session.
+            } else if (options.expires && value === "") {
               parts.push(`Expires=${options.expires.toUTCString()}`);
             }
             if (options.secure) {
