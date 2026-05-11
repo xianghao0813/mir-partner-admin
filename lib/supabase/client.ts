@@ -49,7 +49,8 @@ export function createClient() {
                 name,
                 value: decodeURIComponent(value),
               };
-            });
+            })
+            .filter(({ name }) => isAdminAuthCookieName(name));
         },
         setAll(cookiesToSet) {
           if (typeof document === "undefined") {
@@ -80,5 +81,12 @@ export function createClient() {
         },
       },
     }
+  );
+}
+
+function isAdminAuthCookieName(name: string) {
+  return (
+    name === ADMIN_AUTH_COOKIE_OPTIONS.name ||
+    name.startsWith(`${ADMIN_AUTH_COOKIE_OPTIONS.name}.`)
   );
 }

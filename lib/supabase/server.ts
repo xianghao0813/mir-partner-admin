@@ -13,7 +13,9 @@ export async function createClient() {
       cookies: {
         encode: "tokens-only",
         getAll() {
-          return cookieStore.getAll();
+          return cookieStore
+            .getAll()
+            .filter(({ name }) => isAdminAuthCookieName(name));
         },
         setAll(cookiesToSet) {
           try {
@@ -31,5 +33,12 @@ export async function createClient() {
         },
       },
     }
+  );
+}
+
+function isAdminAuthCookieName(name: string) {
+  return (
+    name === ADMIN_AUTH_COOKIE_OPTIONS.name ||
+    name.startsWith(`${ADMIN_AUTH_COOKIE_OPTIONS.name}.`)
   );
 }
