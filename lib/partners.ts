@@ -31,6 +31,12 @@ export type PartnerRecord = {
   realNameVerified: boolean;
   phone: string;
   maskedPhone: string;
+  accountStatus: "active" | "frozen";
+  frozenAt: string | null;
+  frozenUntil: string | null;
+  frozenReason: string;
+  frozenBy: string;
+  frozenSource: "auto" | "manual";
   lastSignInAt: string | null;
   createdAt: string | null;
   pointTransactions: LedgerEntry[];
@@ -75,11 +81,33 @@ export function buildPartnerRecord(user: User, partnerNumber: number): PartnerRe
       readNumber(metadata?.time_left) === -1,
     phone: readString(metadata?.mobile) || readString(metadata?.phone) || readString(metadata?.bound_phone),
     maskedPhone: maskPhone(readString(metadata?.mobile) || readString(metadata?.phone) || readString(metadata?.bound_phone)),
+    accountStatus: readAccountStatus(metadata),
+    frozenAt: readString(metadata?.account_frozen_at) || null,
+    frozenUntil: readString(metadata?.account_frozen_until) || null,
+    frozenReason: readString(metadata?.account_frozen_reason),
+    frozenBy: readString(metadata?.account_frozen_by),
+    frozenSource: readFreezeSource(metadata),
     lastSignInAt: user.last_sign_in_at ?? null,
     createdAt: user.created_at ?? null,
     pointTransactions: readPointTransactions(metadata),
     coinTransactions: readCoinTransactions(metadata),
   };
+}
+
+function readFreezeSource(metadata: UserMetadata | undefined): "auto" | "manual" {
+  const frozenBy = readString(metadata?.account_frozen_by).toLowerCase();
+  return frozenBy === "risk-control" || frozenBy === "system" ? "auto" : "manual";
+}
+
+function readAccountStatus(metadata: UserMetadata | undefined): "active" | "frozen" {
+  const status = readString(metadata?.account_status).toLowerCase();
+  const frozenUntil = readString(metadata?.account_frozen_until);
+
+  if (status === "frozen" && (!frozenUntil || Date.parse(frozenUntil) > Date.now())) {
+    return "frozen";
+  }
+
+  return "active";
 }
 
 export function filterLedgerByMonth(entries: LedgerEntry[], month: string) {

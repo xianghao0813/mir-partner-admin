@@ -86,6 +86,12 @@ export async function PATCH(request: NextRequest) {
   }
 
   const body = await request.json().catch(() => null);
+  const action = String(body?.action ?? "").trim();
+
+  if (action === "freeze" || action === "unfreeze") {
+    return updatePartnerSecurity(body, adminUser.email ?? adminUser.id, action);
+  }
+
   const userIds = Array.isArray(body?.userIds)
     ? body.userIds.map((id: unknown) => String(id ?? "").trim()).filter(Boolean)
     : [];
@@ -158,6 +164,83 @@ export async function PATCH(request: NextRequest) {
     },
     { status: failed.length === results.length ? 500 : 200 }
   );
+}
+
+async function updatePartnerSecurity(body: unknown, adminEmail: string, action: "freeze" | "unfreeze") {
+  const payload = body as Record<string, unknown> | null;
+  const userId = String(payload?.userId ?? "").trim();
+
+  if (!userId) {
+    return NextResponse.json({ message: "请选择一个合伙人。" }, { status: 400 });
+  }
+
+  const { data: userData, error: fetchError } = await supabaseAdmin.auth.admin.getUserById(userId);
+
+  if (fetchError || !userData.user) {
+    return NextResponse.json(
+      { message: fetchError?.message ?? "User not found" },
+      { status: 404 }
+    );
+  }
+
+  const now = new Date().toISOString();
+  const metadata = { ...(userData.user.user_metadata ?? {}) };
+
+  if (action === "unfreeze") {
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+      user_metadata: {
+        ...metadata,
+        account_status: "active",
+        account_frozen_until: null,
+        account_frozen_reason: null,
+        account_unfrozen_at: now,
+        account_unfrozen_by: adminEmail,
+      },
+    });
+
+    if (error) {
+      return NextResponse.json({ message: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true, accountStatus: "active" });
+  }
+
+  const frozenUntilInput = String(payload?.frozenUntil ?? "").trim();
+  const reason = String(payload?.reason ?? "").trim();
+  const frozenUntil = new Date(frozenUntilInput);
+
+  if (!frozenUntilInput || Number.isNaN(frozenUntil.getTime())) {
+    return NextResponse.json({ message: "请选择有效的冻结结束时间。" }, { status: 400 });
+  }
+
+  if (frozenUntil.getTime() <= Date.now()) {
+    return NextResponse.json({ message: "冻结结束时间必须晚于当前时间。" }, { status: 400 });
+  }
+
+  if (!reason) {
+    return NextResponse.json({ message: "请输入冻结原因。" }, { status: 400 });
+  }
+
+  const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+    user_metadata: {
+      ...metadata,
+      account_status: "frozen",
+      account_frozen_until: frozenUntil.toISOString(),
+      account_frozen_reason: reason,
+      account_frozen_at: now,
+      account_frozen_by: adminEmail,
+    },
+  });
+
+  if (error) {
+    return NextResponse.json({ message: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({
+    success: true,
+    accountStatus: "frozen",
+    frozenUntil: frozenUntil.toISOString(),
+  });
 }
 
 export async function POST(request: NextRequest) {

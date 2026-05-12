@@ -26,6 +26,12 @@ type PartnerRecord = {
   realNameVerified: boolean;
   phone: string;
   maskedPhone: string;
+  accountStatus: "active" | "frozen";
+  frozenAt: string | null;
+  frozenUntil: string | null;
+  frozenReason: string;
+  frozenBy: string;
+  frozenSource: "auto" | "manual";
   lastSignInAt: string | null;
   createdAt: string | null;
   pointTransactions: LedgerEntry[];
@@ -33,7 +39,7 @@ type PartnerRecord = {
 };
 
 type LedgerMode = "points" | "coins";
-type PartnerTab = "list" | "points" | "test-order" | "coupons";
+type PartnerTab = "list" | "frozen" | "points" | "test-order" | "coupons" | "security";
 
 type CouponItem = {
   id: string;
@@ -47,11 +53,26 @@ type CouponItem = {
   status: "unused" | "expired" | "used";
 };
 
+type RiskEvent = {
+  id: string;
+  eventType: string;
+  severity: "low" | "medium" | "high" | "critical";
+  score: number;
+  source: string;
+  details: Record<string, unknown>;
+  ipAddress: string | null;
+  userAgent: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+};
+
 const partnerTabs: { key: PartnerTab; label: string }[] = [
   { key: "list", label: "合伙人列表" },
+  { key: "frozen", label: "冻结名单" },
   { key: "points", label: "积分调整" },
   { key: "test-order", label: "测试订单" },
   { key: "coupons", label: "优惠券" },
+  { key: "security", label: "账号风控" },
 ];
 
 const packageOptions = [
@@ -104,10 +125,21 @@ export default function PartnersManagerClient() {
   const [couponStartsAt, setCouponStartsAt] = useState(toDateTimeInputValue(new Date()));
   const [couponExpiresAt, setCouponExpiresAt] = useState(toDateTimeInputValue(addDays(new Date(), 7)));
   const [creatingCoupon, setCreatingCoupon] = useState(false);
+  const [freezeUntil, setFreezeUntil] = useState(toDateTimeInputValue(addHours(new Date(), 24)));
+  const [freezeReason, setFreezeReason] = useState("账户存在异常操作，需要人工复核。");
+  const [updatingSecurity, setUpdatingSecurity] = useState(false);
+  const [riskEvents, setRiskEvents] = useState<RiskEvent[]>([]);
+  const [loadingRiskEvents, setLoadingRiskEvents] = useState(false);
+
+  const frozenPartners = useMemo(
+    () => partners.filter((partner) => partner.accountStatus === "frozen"),
+    [partners]
+  );
+  const visiblePartners = activeTab === "frozen" ? frozenPartners : partners;
 
   const selectedPartner = useMemo(
-    () => partners.find((partner) => partner.id === selectedId) ?? partners[0] ?? null,
-    [partners, selectedId]
+    () => visiblePartners.find((partner) => partner.id === selectedId) ?? visiblePartners[0] ?? null,
+    [selectedId, visiblePartners]
   );
 
   const activeLedger =
@@ -122,14 +154,37 @@ export default function PartnersManagerClient() {
   }, []);
 
   useEffect(() => {
+    if (visiblePartners.length === 0) {
+      setSelectedId(null);
+      return;
+    }
+
+    setSelectedId((current) =>
+      current && visiblePartners.some((partner) => partner.id === current)
+        ? current
+        : visiblePartners[0].id
+    );
+  }, [visiblePartners]);
+
+  useEffect(() => {
     if (!selectedPartner) {
       setCoupons([]);
       setTestCouponId("");
+      setRiskEvents([]);
       return;
     }
 
     void loadCoupons(selectedPartner.id);
+    if (activeTab === "security") {
+      void loadRiskEvents(selectedPartner.id);
+    }
   }, [selectedPartner?.id]);
+
+  useEffect(() => {
+    if (activeTab === "security" && selectedPartner) {
+      void loadRiskEvents(selectedPartner.id);
+    }
+  }, [activeTab, selectedPartner?.id]);
 
   function setActiveTab(tab: PartnerTab) {
     router.push(`/partners?tab=${tab}`, { scroll: false });
@@ -197,6 +252,25 @@ export default function PartnersManagerClient() {
     }
   }
 
+  async function loadRiskEvents(userId: string) {
+    setLoadingRiskEvents(true);
+    try {
+      const res = await fetch(adminPath(`/api/admin/partners/${encodeURIComponent(userId)}/risk-events`), {
+        cache: "no-store",
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(json?.message ?? "Failed to fetch risk events");
+      }
+
+      setRiskEvents(Array.isArray(json?.events) ? json.events as RiskEvent[] : []);
+    } catch {
+      setRiskEvents([]);
+    } finally {
+      setLoadingRiskEvents(false);
+    }
+  }
+
   function handleSearch(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     void loadPartners({ q: query, month });
@@ -209,7 +283,7 @@ export default function PartnersManagerClient() {
   }
 
   function toggleAllVisible(checked: boolean) {
-    setSelectedIds(checked ? partners.map((partner) => partner.id) : []);
+    setSelectedIds(checked ? visiblePartners.map((partner) => partner.id) : []);
   }
 
   function getTargetUserIds() {
@@ -402,6 +476,85 @@ export default function PartnersManagerClient() {
     }
   }
 
+  async function handleFreezeAccount(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+
+    if (!selectedPartner) {
+      setError("请选择一个合伙人。");
+      return;
+    }
+
+    if (!freezeUntil) {
+      setError("请选择冻结结束时间。");
+      return;
+    }
+
+    if (!freezeReason.trim()) {
+      setError("请输入冻结原因。");
+      return;
+    }
+
+    setUpdatingSecurity(true);
+    try {
+      const res = await fetch(adminPath("/api/admin/partners"), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "freeze",
+          userId: selectedPartner.id,
+          frozenUntil: freezeUntil,
+          reason: freezeReason,
+        }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(json?.message ?? "账号冻结失败。");
+      }
+
+      setMessage("账号已冻结。");
+      await loadPartners({ q: query, month });
+    } catch (securityError) {
+      setError(securityError instanceof Error ? securityError.message : "账号冻结失败。");
+    } finally {
+      setUpdatingSecurity(false);
+    }
+  }
+
+  async function handleUnfreezeAccount() {
+    setError("");
+    setMessage("");
+
+    if (!selectedPartner) {
+      setError("请选择一个合伙人。");
+      return;
+    }
+
+    setUpdatingSecurity(true);
+    try {
+      const res = await fetch(adminPath("/api/admin/partners"), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "unfreeze",
+          userId: selectedPartner.id,
+        }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(json?.message ?? "账号解冻失败。");
+      }
+
+      setMessage("账号已解冻。");
+      await loadPartners({ q: query, month });
+    } catch (securityError) {
+      setError(securityError instanceof Error ? securityError.message : "账号解冻失败。");
+    } finally {
+      setUpdatingSecurity(false);
+    }
+  }
+
   return (
     <>
       <div style={tabsStyle}>
@@ -422,8 +575,10 @@ export default function PartnersManagerClient() {
           <div style={toolbarStyle}>
             <div>
               <div style={eyebrowStyle}>Partner Count</div>
-              <strong style={countStyle}>{totalPartners.toLocaleString()}</strong>
-              <span style={mutedTextStyle}> 合伙人</span>
+              <strong style={countStyle}>
+                {(activeTab === "frozen" ? frozenPartners.length : totalPartners).toLocaleString()}
+              </strong>
+              <span style={mutedTextStyle}>{activeTab === "frozen" ? " 冻结账号" : " 合伙人"}</span>
             </div>
 
             <form onSubmit={handleSearch} style={searchFormStyle}>
@@ -508,8 +663,8 @@ export default function PartnersManagerClient() {
 
           {loading ? (
             <div style={emptyStyle}>加载合伙人数据...</div>
-          ) : partners.length === 0 ? (
-            <div style={emptyStyle}>暂无匹配的合伙人。</div>
+          ) : visiblePartners.length === 0 ? (
+            <div style={emptyStyle}>{activeTab === "frozen" ? "暂无冻结账号。" : "暂无匹配的合伙人。"}</div>
           ) : (
             <div style={tableWrapStyle}>
               <table style={tableStyle}>
@@ -518,7 +673,7 @@ export default function PartnersManagerClient() {
                     <th style={thStyle}>
                       <input
                         type="checkbox"
-                        checked={partners.length > 0 && selectedIds.length === partners.length}
+                        checked={visiblePartners.length > 0 && selectedIds.length === visiblePartners.length}
                         onChange={(event) => toggleAllVisible(event.target.checked)}
                         aria-label="选择全部可见合伙人"
                       />
@@ -529,13 +684,23 @@ export default function PartnersManagerClient() {
                     <th style={thStyle}>星级</th>
                     <th style={thStyle}>积分</th>
                     <th style={thStyle}>云币</th>
+                    <th style={thStyle}>状态</th>
                     <th style={thStyle}>实名认证</th>
                     <th style={thStyle}>手机号</th>
                     <th style={thStyle}>最近登录</th>
+                    {activeTab === "frozen" ? (
+                      <>
+                        <th style={thStyle}>冻结开始</th>
+                        <th style={thStyle}>冻结结束</th>
+                        <th style={thStyle}>类型</th>
+                        <th style={thStyle}>操作人</th>
+                        <th style={thStyle}>原因</th>
+                      </>
+                    ) : null}
                   </tr>
                 </thead>
                 <tbody>
-                  {partners.map((partner) => {
+                  {visiblePartners.map((partner) => {
                     const active = selectedPartner?.id === partner.id;
                     return (
                       <tr
@@ -560,9 +725,19 @@ export default function PartnersManagerClient() {
                         <td style={tdStyle}>{partner.tier.label}</td>
                         <td style={tdStyle}>{partner.points.toLocaleString()}</td>
                         <td style={tdStyle}>{partner.cloudCoins.toLocaleString()}</td>
+                        <td style={tdStyle}><AccountStatusBadge partner={partner} /></td>
                         <td style={tdStyle}>{partner.realNameVerified ? "已认证" : "未认证"}</td>
                         <td style={tdStyle}>{partner.maskedPhone || "-"}</td>
                         <td style={tdStyle}>{formatDate(partner.lastSignInAt)}</td>
+                        {activeTab === "frozen" ? (
+                          <>
+                            <td style={tdStyle}>{formatDate(partner.frozenAt)}</td>
+                            <td style={tdStyle}>{formatDate(partner.frozenUntil)}</td>
+                            <td style={tdStyle}>{partner.frozenSource === "auto" ? "自动" : "手动"}</td>
+                            <td style={tdStyle}>{partner.frozenBy || "-"}</td>
+                            <td style={reasonCellStyle}>{partner.frozenReason || "-"}</td>
+                          </>
+                        ) : null}
                       </tr>
                     );
                   })}
@@ -588,6 +763,10 @@ export default function PartnersManagerClient() {
                 <Metric label="当前 MIR 积分" value={`${selectedPartner.points.toLocaleString()} 分`} />
                 <Metric label="当前星级" value={selectedPartner.tier.label} />
                 <Metric label="当前云币" value={selectedPartner.cloudCoins.toLocaleString()} />
+                <Metric label="账号状态" value={selectedPartner.accountStatus === "frozen" ? `冻结至 ${formatDate(selectedPartner.frozenUntil)}` : "正常"} />
+                <Metric label="冻结开始" value={selectedPartner.accountStatus === "frozen" ? formatDate(selectedPartner.frozenAt) : "-"} />
+                <Metric label="冻结类型" value={selectedPartner.accountStatus === "frozen" ? (selectedPartner.frozenSource === "auto" ? "自动" : "手动") : "-"} />
+                <Metric label="冻结原因" value={selectedPartner.accountStatus === "frozen" ? selectedPartner.frozenReason || "-" : "-"} />
                 <Metric label="实名认证" value={selectedPartner.realNameVerified ? "已认证" : "未认证"} />
                 <Metric label="手机号" value={selectedPartner.maskedPhone || "-"} />
                 <Metric label="最近接入日" value={formatDate(selectedPartner.lastSignInAt)} />
@@ -657,6 +836,88 @@ export default function PartnersManagerClient() {
                   ) : null}
                 </form>
               ) : null}
+
+              {activeTab === "security" ? (
+                <form onSubmit={handleFreezeAccount} style={utilityPanelStyle}>
+                  <PanelTitle
+                    eyebrow="Account Risk"
+                    title="账号冻结"
+                    description="冻结后用户将无法进入个人中心、钱包、积分活动、优惠券、支付和小游戏接口。"
+                  />
+                  <div style={formGridStyle}>
+                    <input
+                      type="datetime-local"
+                      value={freezeUntil}
+                      onChange={(event) => setFreezeUntil(event.target.value)}
+                      style={compactInputStyle}
+                    />
+                    <input
+                      value={freezeReason}
+                      onChange={(event) => setFreezeReason(event.target.value)}
+                      placeholder="冻结原因"
+                      style={compactInputStyle}
+                    />
+                    <button type="submit" disabled={updatingSecurity} style={dangerButtonStyle}>
+                      {updatingSecurity ? "处理中..." : "冻结账号"}
+                    </button>
+                  </div>
+                  <div style={securitySummaryStyle}>
+                    <div>
+                      <strong>当前状态</strong>
+                      <div style={mutedTextStyle}>
+                        {selectedPartner.accountStatus === "frozen"
+                          ? `已冻结至 ${formatDate(selectedPartner.frozenUntil)}`
+                          : "正常"}
+                      </div>
+                      {selectedPartner.frozenReason ? (
+                        <div style={mutedTextStyle}>原因：{selectedPartner.frozenReason}</div>
+                      ) : null}
+                    </div>
+                    <button
+                      type="button"
+                      disabled={updatingSecurity || selectedPartner.accountStatus !== "frozen"}
+                      onClick={handleUnfreezeAccount}
+                      style={secondaryButtonStyle}
+                    >
+                      解除冻结
+                    </button>
+                  </div>
+                  <div style={riskHeaderStyle}>
+                    <strong>最近风控事件</strong>
+                    <button
+                      type="button"
+                      onClick={() => void loadRiskEvents(selectedPartner.id)}
+                      style={secondaryButtonStyle}
+                    >
+                      刷新
+                    </button>
+                  </div>
+                  {loadingRiskEvents ? (
+                    <div style={emptyStyle}>加载风控事件...</div>
+                  ) : riskEvents.length === 0 ? (
+                    <div style={emptyStyle}>暂无风控事件。</div>
+                  ) : (
+                    <div style={riskListStyle}>
+                      {riskEvents.map((event) => (
+                        <div key={event.id} style={riskItemStyle}>
+                          <div>
+                            <div style={riskTitleStyle}>
+                              <span style={riskSeverityStyle(event.severity)}>{event.severity}</span>
+                              {event.eventType}
+                            </div>
+                            <div style={mutedTextStyle}>
+                              {event.source} · {formatDate(event.createdAt)} · score {event.score}
+                            </div>
+                            <div style={mutedTextStyle}>
+                              IP {event.ipAddress || "-"} · {formatRiskDetails(event.details)}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </form>
+              ) : null}
             </>
           ) : (
             <div style={emptyStyle}>请选择一个合伙人。</div>
@@ -719,6 +980,16 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
+function AccountStatusBadge({ partner }: { partner: PartnerRecord }) {
+  const frozen = partner.accountStatus === "frozen";
+
+  return (
+    <span style={frozen ? frozenBadgeStyle : activeBadgeStyle}>
+      {frozen ? "冻结" : "正常"}
+    </span>
+  );
+}
+
 function getCurrentMonth() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -744,7 +1015,7 @@ function formatDate(value: string | null) {
 }
 
 function normalizeTab(value: string | null): PartnerTab {
-  return value === "points" || value === "test-order" || value === "coupons" ? value : "list";
+  return value === "frozen" || value === "points" || value === "test-order" || value === "coupons" || value === "security" ? value : "list";
 }
 
 function renderCouponDiscount(coupon: CouponItem) {
@@ -753,9 +1024,54 @@ function renderCouponDiscount(coupon: CouponItem) {
     : `立减 ¥${coupon.discountValue}`;
 }
 
+function formatRiskDetails(details: Record<string, unknown>) {
+  const entries = Object.entries(details ?? {}).slice(0, 4);
+  if (entries.length === 0) {
+    return "-";
+  }
+
+  return entries
+    .map(([key, value]) => `${key}: ${typeof value === "object" ? JSON.stringify(value) : String(value)}`)
+    .join(" / ");
+}
+
+function riskSeverityStyle(severity: RiskEvent["severity"]): React.CSSProperties {
+  const background =
+    severity === "critical"
+      ? "rgba(220,38,38,0.22)"
+      : severity === "high"
+        ? "rgba(249,115,22,0.2)"
+        : severity === "medium"
+          ? "rgba(234,179,8,0.18)"
+          : "rgba(34,197,94,0.16)";
+  const color =
+    severity === "critical"
+      ? "#fecaca"
+      : severity === "high"
+        ? "#fed7aa"
+        : severity === "medium"
+          ? "#fef3c7"
+          : "#bbf7d0";
+
+  return {
+    borderRadius: "999px",
+    padding: "4px 8px",
+    background,
+    color,
+    fontSize: "12px",
+    fontWeight: 900,
+  };
+}
+
 function addDays(date: Date, days: number) {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
+  return next;
+}
+
+function addHours(date: Date, hours: number) {
+  const next = new Date(date);
+  next.setHours(next.getHours() + hours);
   return next;
 }
 
@@ -783,6 +1099,7 @@ const dangerInputStyle: React.CSSProperties = { ...compactInputStyle, border: "1
 const sdkIssueToggleStyle: React.CSSProperties = { display: "flex", alignItems: "center", gap: "8px", minHeight: "42px", padding: "0 12px", borderRadius: "12px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(248,113,113,0.24)", color: "#fecaca", fontWeight: 800 };
 const dangerTextStyle: React.CSSProperties = { color: "#fecaca", fontSize: "13px", lineHeight: 1.6 };
 const primaryButtonStyle: React.CSSProperties = { border: "none", borderRadius: "12px", padding: "0 16px", minHeight: "42px", background: "linear-gradient(90deg, #7c3aed, #a855f7)", color: "#fff", fontWeight: 800, cursor: "pointer" };
+const dangerButtonStyle: React.CSSProperties = { border: "none", borderRadius: "12px", padding: "0 16px", minHeight: "42px", background: "linear-gradient(90deg, #dc2626, #f97316)", color: "#fff", fontWeight: 800, cursor: "pointer" };
 const secondaryButtonStyle: React.CSSProperties = { border: "1px solid rgba(192,132,252,0.28)", borderRadius: "12px", padding: "10px 12px", background: "rgba(124,58,237,0.12)", color: "#f5d0fe", fontWeight: 800, cursor: "pointer" };
 const errorStyle: React.CSSProperties = { padding: "12px", borderRadius: "12px", background: "rgba(239,68,68,0.12)", border: "1px solid rgba(248,113,113,0.22)", color: "#fecaca", marginBottom: "12px" };
 const successStyle: React.CSSProperties = { padding: "12px", borderRadius: "12px", background: "rgba(34,197,94,0.12)", border: "1px solid rgba(74,222,128,0.22)", color: "#bbf7d0", marginBottom: "12px" };
@@ -794,12 +1111,18 @@ const formGridStyle: React.CSSProperties = { display: "grid", gridTemplateColumn
 const couponFormGridStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "10px" };
 const packageGridStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "8px" };
 const checkLabelStyle: React.CSSProperties = { display: "flex", alignItems: "center", gap: "8px", color: "#e5e7eb", padding: "9px 10px", borderRadius: "12px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" };
+const securitySummaryStyle: React.CSSProperties = { display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "center", padding: "12px", borderRadius: "14px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", flexWrap: "wrap" };
+const riskHeaderStyle: React.CSSProperties = { display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "center", flexWrap: "wrap" };
+const riskListStyle: React.CSSProperties = { display: "grid", gap: "10px" };
+const riskItemStyle: React.CSSProperties = { padding: "12px", borderRadius: "14px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" };
+const riskTitleStyle: React.CSSProperties = { display: "flex", gap: "8px", alignItems: "center", color: "#fff", fontWeight: 900, marginBottom: "6px", flexWrap: "wrap" };
 const emptyStyle: React.CSSProperties = { padding: "22px", borderRadius: "16px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", color: "#9ca3af", textAlign: "center" };
 const tableWrapStyle: React.CSSProperties = { overflowX: "auto" };
 const tableStyle: React.CSSProperties = { width: "100%", borderCollapse: "collapse" };
 const thStyle: React.CSSProperties = { padding: "12px", textAlign: "left", color: "#9ca3af", fontSize: "12px", borderBottom: "1px solid rgba(255,255,255,0.08)", whiteSpace: "nowrap" };
 const tdStyle: React.CSSProperties = { padding: "12px", borderBottom: "1px solid rgba(255,255,255,0.06)", color: "#e5e7eb", whiteSpace: "nowrap" };
 const tdStrongStyle: React.CSSProperties = { ...tdStyle, color: "#fff", fontWeight: 800 };
+const reasonCellStyle: React.CSSProperties = { ...tdStyle, maxWidth: "320px", whiteSpace: "normal", lineHeight: 1.5 };
 const trStyle: React.CSSProperties = { cursor: "pointer" };
 const activeTrStyle: React.CSSProperties = { background: "rgba(124,58,237,0.12)" };
 const detailHeaderStyle: React.CSSProperties = { display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "flex-start", marginBottom: "16px" };
@@ -820,3 +1143,5 @@ const ledgerItemStyle: React.CSSProperties = { padding: "14px", borderRadius: "1
 const dateTextStyle: React.CSSProperties = { color: "#6b7280", fontSize: "12px", marginTop: "4px" };
 const amountStyle: React.CSSProperties = { color: "#86efac", fontWeight: 900, fontSize: "18px" };
 const deductAmountStyle: React.CSSProperties = { color: "#fca5a5", fontWeight: 900, fontSize: "18px" };
+const activeBadgeStyle: React.CSSProperties = { borderRadius: "999px", padding: "5px 9px", background: "rgba(34,197,94,0.14)", color: "#bbf7d0", fontWeight: 900, fontSize: "12px" };
+const frozenBadgeStyle: React.CSSProperties = { borderRadius: "999px", padding: "5px 9px", background: "rgba(239,68,68,0.14)", color: "#fecaca", fontWeight: 900, fontSize: "12px" };

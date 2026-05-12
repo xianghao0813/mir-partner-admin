@@ -27,3 +27,74 @@ textarea,
 select {
   font: inherit;
 }
+
+.rich-content {
+  color: #e5e7eb;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+
+.rich-content :where(p, h2, h3, blockquote, ul, ol, table) {
+  margin-top: 0;
+}
+
+.rich-content :where(p, h2, h3, blockquote, ul, ol) {
+  margin-bottom: 12px;
+}
+
+.rich-content h2 {
+  color: #fff;
+  font-size: 26px;
+  line-height: 1.35;
+}
+
+.rich-content h3 {
+  color: #fff;
+  font-size: 21px;
+  line-height: 1.4;
+}
+
+.rich-content blockquote {
+  border-left: 4px solid rgba(192, 132, 252, 0.7);
+  padding: 10px 14px;
+  background: rgba(124, 58, 237, 0.12);
+  border-radius: 0 12px 12px 0;
+}
+
+.rich-content a {
+  color: #c084fc;
+  text-decoration: underline;
+}
+
+.rich-content img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 14px 0;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.rich-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 14px;
+  overflow: hidden;
+  border-radius: 12px;
+}
+
+.rich-content :where(th, td) {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.rich-content th {
+  background: rgba(124, 58, 237, 0.18);
+  color: #fff;
+}
+
+.rich-content-editor:empty::before {
+  content: attr(data-placeholder);
+  color: #6b7280;
+}
