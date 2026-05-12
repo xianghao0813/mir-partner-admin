@@ -21,6 +21,12 @@ const gameOptions = [
   { value: "legend-of-ymir", label: "Legend of YMIR" },
 ];
 
+const gameLabelMap = Object.fromEntries(gameOptions.map((option) => [option.value, option.label]));
+const MAX_ORIGINAL_BANNER_SIZE = 12 * 1024 * 1024;
+const MAX_UPLOAD_BANNER_SIZE = 1536 * 1024;
+const BANNER_MAX_DIMENSION = 2200;
+const ALLOWED_BANNER_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+
 export default function BannersManagerClient() {
   const [banners, setBanners] = useState<Banner[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,6 +41,7 @@ export default function BannersManagerClient() {
   const [sortOrder, setSortOrder] = useState(0);
   const [isActive, setIsActive] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   useEffect(() => {
     void loadBanners();
@@ -68,6 +75,7 @@ export default function BannersManagerClient() {
     setGameSlug("");
     setSortOrder(0);
     setIsActive(true);
+    setUploadingImage(false);
     setError("");
     setMessage("");
   }
@@ -133,6 +141,60 @@ export default function BannersManagerClient() {
     }
   }
 
+  async function handleBannerUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    setError("");
+    setMessage("");
+
+    if (!ALLOWED_BANNER_TYPES.has(file.type)) {
+      setError("只支持 JPG、PNG、WEBP 或 GIF 图片。");
+      return;
+    }
+
+    if (file.size > MAX_ORIGINAL_BANNER_SIZE) {
+      setError("原始图片不能超过 12MB。");
+      return;
+    }
+
+    if (file.type === "image/gif" && file.size > MAX_UPLOAD_BANNER_SIZE) {
+      setError("GIF 图片不能超过 1.5MB。JPG、PNG、WEBP 会自动压缩。");
+      return;
+    }
+
+    setUploadingImage(true);
+
+    try {
+      const uploadFile = await prepareBannerFile(file);
+      const formData = new FormData();
+      formData.append("file", uploadFile);
+
+      const res = await fetch(adminPath("/api/admin/uploads"), {
+        method: "POST",
+        body: formData,
+      });
+      const json = await res.json().catch(() => null) as {
+        message?: string;
+        error?: string;
+        url?: string;
+      } | null;
+
+      if (!res.ok) {
+        const detail = [json?.message, json?.error].filter(Boolean).join(" ");
+        throw new Error(detail || `Failed to upload image. HTTP ${res.status}`);
+      }
+
+      setImageUrl(String(json?.url ?? ""));
+      setMessage(uploadFile.size < file.size ? "Banner image compressed and uploaded." : "Banner image uploaded.");
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : "Failed to upload image");
+    } finally {
+      setUploadingImage(false);
+    }
+  }
+
   async function handleDelete(id: number) {
     if (!window.confirm("Delete this banner?")) return;
 
@@ -169,6 +231,19 @@ export default function BannersManagerClient() {
         <form onSubmit={handleSubmit} style={{ display: "grid", gap: "12px" }}>
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Banner title" style={inputStyle} />
           <input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="Image URL" style={inputStyle} />
+          <div style={uploadRowStyle}>
+            <label style={uploadButtonStyle}>
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                onChange={(event) => void handleBannerUpload(event)}
+                disabled={uploadingImage}
+                style={hiddenFileInputStyle}
+              />
+              {uploadingImage ? "Uploading..." : "Upload Banner Image"}
+            </label>
+            <span style={uploadHintStyle}>JPG, PNG, WEBP auto-compress / GIF max 1.5MB</span>
+          </div>
           <input value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="Link URL" style={inputStyle} />
 
           <div style={threeColStyle}>
@@ -221,7 +296,7 @@ export default function BannersManagerClient() {
                   <div>
                     <div style={itemTitleStyle}>{banner.title || `Banner #${banner.id}`}</div>
                     <div style={itemMetaStyle}>
-                      Sort {banner.sort_order} | {banner.is_active ? "Active" : "Inactive"} | {banner.game_slug || "General"}
+                      Sort {banner.sort_order} | {banner.is_active ? "Active" : "Inactive"} | {gameLabelMap[banner.game_slug ?? ""] ?? banner.game_slug ?? "General"}
                     </div>
                   </div>
                   <div style={actionsStyle}>
@@ -247,6 +322,60 @@ export default function BannersManagerClient() {
       </section>
     </div>
   );
+}
+
+async function prepareBannerFile(file: File) {
+  if (file.type === "image/gif" || file.size <= MAX_UPLOAD_BANNER_SIZE) {
+    return file;
+  }
+
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, BANNER_MAX_DIMENSION / Math.max(bitmap.width, bitmap.height));
+  const width = Math.max(1, Math.round(bitmap.width * scale));
+  const height = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    bitmap.close();
+    return file;
+  }
+
+  context.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close();
+
+  const qualities = [0.86, 0.78, 0.68, 0.58, 0.48];
+  for (const quality of qualities) {
+    const blob = await canvasToBlob(canvas, "image/jpeg", quality);
+    if (blob.size <= MAX_UPLOAD_BANNER_SIZE || quality === qualities[qualities.length - 1]) {
+      return new File([blob], replaceFileExtension(file.name, "jpg"), { type: "image/jpeg" });
+    }
+  }
+
+  return file;
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number) {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) {
+          resolve(blob);
+        } else {
+          reject(new Error("Failed to compress image"));
+        }
+      },
+      type,
+      quality
+    );
+  });
+}
+
+function replaceFileExtension(fileName: string, extension: string) {
+  const baseName = fileName.replace(/\.[^.]+$/, "");
+  return `${baseName || "banner"}.${extension}`;
 }
 
 const panelStyle: React.CSSProperties = {
@@ -278,6 +407,37 @@ const inputStyle: React.CSSProperties = {
   background: "rgba(0,0,0,0.24)",
   color: "white",
   boxSizing: "border-box",
+};
+
+const uploadRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "12px",
+  flexWrap: "wrap",
+};
+
+const uploadButtonStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  minHeight: "42px",
+  padding: "0 16px",
+  borderRadius: "13px",
+  border: "1px solid rgba(250,204,21,0.28)",
+  background: "rgba(250,204,21,0.12)",
+  color: "#fde68a",
+  fontSize: "14px",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+const hiddenFileInputStyle: React.CSSProperties = {
+  display: "none",
+};
+
+const uploadHintStyle: React.CSSProperties = {
+  color: "#9ca3af",
+  fontSize: "12px",
 };
 
 const threeColStyle: React.CSSProperties = {
