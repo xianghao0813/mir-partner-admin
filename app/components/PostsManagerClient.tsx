@@ -372,7 +372,7 @@ export default function PostsManagerClient({ currentAdminEmail }: Props) {
 
   return (
     <div style={{ display: "grid", gap: "18px" }}>
-      <section style={editorGridStyle}>
+      <section className="posts-editor-grid" style={editorGridStyle}>
         <div style={panelStyle}>
           <div style={headerRowStyle}>
             <div style={panelTitleStyle}>{editingId ? "编辑帖子" : "发布帖子"}</div>

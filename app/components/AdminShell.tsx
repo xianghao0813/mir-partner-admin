@@ -6,7 +6,7 @@ type Props = {
   title: string;
   description: string;
   section: "dashboard" | "banners" | "accounts" | "posts" | "partners" | "analytics";
-  partnerSubsection?: "list" | "points" | "test-order" | "coupons";
+  partnerSubsection?: "list" | "points" | "test-order" | "coupons" | "security" | "frozen";
   children: React.ReactNode;
 };
 
@@ -21,6 +21,8 @@ const partnerNavItems = [
   { href: "/partners?tab=points", key: "points", label: "Point Adjustment" },
   { href: "/partners?tab=test-order", key: "test-order", label: "Test Orders" },
   { href: "/partners?tab=coupons", key: "coupons", label: "Coupons" },
+  { href: "/partners?tab=security", key: "security", label: "Security" },
+  { href: "/partners?tab=frozen", key: "frozen", label: "Frozen List" },
 ] as const;
 
 const contentNavItems = [
@@ -39,18 +41,18 @@ export default async function AdminShell({
   const currentRoleGroup = readRoleGroup(currentAdmin?.app_metadata, currentAdmin?.user_metadata);
 
   return (
-    <main style={pageStyle}>
-      <div style={shellStyle}>
-        <aside style={sidebarStyle}>
+    <main className="admin-page" style={pageStyle}>
+      <div className="admin-shell" style={shellStyle}>
+        <aside className="admin-sidebar" style={sidebarStyle}>
           <div>
             <div style={eyebrowStyle}>Independent Admin</div>
-            <h1 style={brandStyle}>MIR Partner Admin</h1>
+            <h1 className="admin-brand" style={brandStyle}>MIR Partner Admin</h1>
             <p style={sidebarCopyStyle}>
               Manage public site content, homepage banners, and admin users from one console.
             </p>
           </div>
 
-          <nav style={navStyle}>
+          <nav className="admin-nav" style={navStyle}>
             {navItems.map((item) => {
               const active = item.key === section;
               return (
@@ -69,7 +71,7 @@ export default async function AdminShell({
 
             <div style={navGroupStyle}>
               <div style={navGroupTitleStyle}>MIR Partner</div>
-              <div style={subNavStyle}>
+              <div className="admin-subnav" style={subNavStyle}>
                 {partnerNavItems.map((item) => (
                   <Link
                     key={item.href}
@@ -89,7 +91,7 @@ export default async function AdminShell({
 
             <div style={navGroupStyle}>
               <div style={navGroupTitleStyle}>Content</div>
-              <div style={subNavStyle}>
+              <div className="admin-subnav" style={subNavStyle}>
                 {contentNavItems.map((item) => {
                   const active = item.key === section;
                   return (
@@ -128,10 +130,10 @@ export default async function AdminShell({
           </form>
         </aside>
 
-        <section style={contentStyle}>
+        <section className="admin-content" style={contentStyle}>
           <header style={headerStyle}>
             <div style={eyebrowStyle}>Console</div>
-            <h2 style={titleStyle}>{title}</h2>
+            <h2 className="admin-title" style={titleStyle}>{title}</h2>
             <p style={descriptionStyle}>{description}</p>
           </header>
 

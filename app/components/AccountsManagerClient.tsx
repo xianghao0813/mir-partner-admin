@@ -581,7 +581,7 @@ const threeColStyle: React.CSSProperties = {
 
 const securityGridStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "minmax(220px, 1fr) repeat(3, auto)",
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))",
   gap: "10px",
   alignItems: "center",
 };

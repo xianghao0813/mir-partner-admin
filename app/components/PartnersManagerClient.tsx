@@ -570,7 +570,7 @@ export default function PartnersManagerClient() {
         ))}
       </div>
 
-      <div style={pageGridStyle}>
+      <div className="partners-layout" style={pageGridStyle}>
         <section style={panelStyle}>
           <div style={toolbarStyle}>
             <div>
@@ -666,8 +666,8 @@ export default function PartnersManagerClient() {
           ) : visiblePartners.length === 0 ? (
             <div style={emptyStyle}>{activeTab === "frozen" ? "暂无冻结账号。" : "暂无匹配的合伙人。"}</div>
           ) : (
-            <div style={tableWrapStyle}>
-              <table style={tableStyle}>
+            <div className="admin-table-wrap" style={tableWrapStyle}>
+              <table className="admin-data-table" style={tableStyle}>
                 <thead>
                   <tr>
                     <th style={thStyle}>

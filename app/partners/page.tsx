@@ -31,5 +31,11 @@ export default async function PartnersPage({ searchParams }: Props) {
 }
 
 function normalizePartnerSubsection(value: string | undefined) {
-  return value === "points" || value === "test-order" || value === "coupons" ? value : "list";
+  return value === "points" ||
+    value === "test-order" ||
+    value === "coupons" ||
+    value === "security" ||
+    value === "frozen"
+    ? value
+    : "list";
 }

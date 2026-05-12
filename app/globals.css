@@ -98,3 +98,89 @@ select {
   content: attr(data-placeholder);
   color: #6b7280;
 }
+
+.admin-table-wrap {
+  -webkit-overflow-scrolling: touch;
+}
+
+.admin-data-table {
+  min-width: 980px;
+}
+
+.rich-content table {
+  min-width: 520px;
+}
+
+@media (max-width: 980px) {
+  .admin-page {
+    padding: 14px !important;
+  }
+
+  .admin-shell,
+  .partners-layout,
+  .posts-editor-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .admin-sidebar {
+    position: static !important;
+    top: auto !important;
+    border-radius: 20px !important;
+    padding: 18px !important;
+  }
+
+  .admin-subnav {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    padding-left: 0 !important;
+  }
+
+  .admin-content {
+    min-width: 0 !important;
+  }
+
+  .admin-title {
+    font-size: 32px !important;
+    line-height: 1.15 !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .admin-page {
+    padding: 10px !important;
+  }
+
+  .admin-brand {
+    font-size: 28px !important;
+  }
+
+  .admin-title {
+    font-size: 26px !important;
+  }
+
+  .admin-sidebar {
+    gap: 16px !important;
+  }
+
+  .admin-table-wrap {
+    margin: 0 -10px;
+    padding: 0 10px;
+  }
+
+  .rich-content {
+    font-size: 14px;
+  }
+
+  .rich-content h2 {
+    font-size: 22px;
+  }
+
+  .rich-content h3 {
+    font-size: 18px;
+  }
+
+  .rich-content table {
+    display: block;
+    overflow-x: auto;
+  }
+}
