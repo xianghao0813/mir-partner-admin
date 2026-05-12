@@ -199,13 +199,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const existingWalletTransactions = Array.isArray(data.user.user_metadata?.wallet_transactions)
-    ? data.user.user_metadata.wallet_transactions
-    : [];
-  const duplicate = existingWalletTransactions.some((item) => {
-    if (!item || typeof item !== "object") return false;
-    return String((item as Record<string, unknown>).id ?? "") === `sdk-order-${orderNo}`;
-  });
+  const existingWalletTransactions = await readWalletTransactionsFromDb(userId);
+  const duplicate = existingWalletTransactions.some((item) => item.id === `sdk-order-${orderNo}`);
 
   if (duplicate) {
     return NextResponse.json({ message: "该测试订单号已存在。" }, { status: 409 });

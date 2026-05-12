@@ -148,10 +148,6 @@ export function appendManualPointAdjustment({
     afterPoints,
     createdAt: now.toISOString(),
   };
-  const currentTransactions = Array.isArray(metadata?.mir_point_transactions)
-    ? metadata.mir_point_transactions
-    : [];
-
   return {
     metadata: {
       ...(metadata ?? {}),
@@ -166,7 +162,7 @@ export function appendManualPointAdjustment({
       mir_last_point_source: "admin_manual_adjustment",
       mir_last_point_award: delta,
       mir_last_point_awarded_at: now.toISOString(),
-      mir_point_transactions: [transaction, ...currentTransactions].slice(0, 500),
+      mir_point_transactions: null,
     },
     beforePoints,
     afterPoints,
@@ -225,19 +221,12 @@ export function appendAdminTestRechargeOrder({
     adminEmail,
     createdAt,
   };
-  const currentPointTransactions = Array.isArray(metadata?.mir_point_transactions)
-    ? metadata.mir_point_transactions
-    : [];
-  const currentWalletTransactions = Array.isArray(metadata?.wallet_transactions)
-    ? metadata.wallet_transactions
-    : [];
-
   return {
     metadata: {
       ...(metadata ?? {}),
       cloud_coins: afterCoins,
       wallet_last_order_no: orderNo,
-      wallet_transactions: [walletTransaction, ...currentWalletTransactions].slice(0, 500),
+      wallet_transactions: null,
       mir_points: afterPoints,
       mir_month_key: monthKey,
       mir_month_points: currentMonthlyPoints + awardedPoints,
@@ -249,7 +238,7 @@ export function appendAdminTestRechargeOrder({
       mir_last_point_source: "admin_test_recharge",
       mir_last_point_award: awardedPoints,
       mir_last_point_awarded_at: createdAt,
-      mir_point_transactions: [pointTransaction, ...currentPointTransactions].slice(0, 500),
+      mir_point_transactions: null,
     },
     beforePoints,
     afterPoints,
@@ -318,19 +307,12 @@ export function appendAdminCouponTestOrder({
     adminEmail,
     createdAt,
   };
-  const currentPointTransactions = Array.isArray(metadata?.mir_point_transactions)
-    ? metadata.mir_point_transactions
-    : [];
-  const currentWalletTransactions = Array.isArray(metadata?.wallet_transactions)
-    ? metadata.wallet_transactions
-    : [];
-
   return {
     metadata: {
       ...(metadata ?? {}),
       cloud_coins: afterCoins,
       wallet_last_order_no: orderNo,
-      wallet_transactions: [walletTransaction, ...currentWalletTransactions].slice(0, 500),
+      wallet_transactions: null,
       mir_points: afterPoints,
       mir_month_key: monthKey,
       mir_month_points: currentMonthlyPoints + awardedPoints,
@@ -342,7 +324,7 @@ export function appendAdminCouponTestOrder({
       mir_last_point_source: "admin_coupon_test_order",
       mir_last_point_award: awardedPoints,
       mir_last_point_awarded_at: createdAt,
-      mir_point_transactions: [pointTransaction, ...currentPointTransactions].slice(0, 500),
+      mir_point_transactions: null,
     },
     beforePoints,
     afterPoints,
