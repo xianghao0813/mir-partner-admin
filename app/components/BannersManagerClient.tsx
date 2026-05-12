@@ -16,7 +16,7 @@ type Banner = {
 const gameOptions = [
   { value: "", label: "General" },
   { value: "mir4", label: "MIR4" },
-  { value: "mirm", label: "MIR M" },
+  { value: "mirm", label: "暮光双龙" },
   { value: "night-crows", label: "Night Crows" },
   { value: "legend-of-ymir", label: "Legend of YMIR" },
 ];
