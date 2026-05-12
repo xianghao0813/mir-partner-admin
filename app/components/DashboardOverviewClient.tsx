@@ -3,45 +3,64 @@
 import { useEffect, useMemo, useState } from "react";
 import { adminPath } from "@/lib/paths";
 
-type AdminUser = {
-  id: string;
+type DashboardMetrics = {
+  partnerCount: number;
+  todayRechargeAmount: number;
+  totalRechargeAmount: number;
+  todayActiveUsers: number;
+  todayPaidUsers: number;
+  paymentRate: number;
+  range: {
+    timezone: string;
+    startIso: string;
+    endIso: string;
+  };
 };
 
-type Notice = {
-  id: number;
-  showOnHome: boolean;
+const emptyMetrics: DashboardMetrics = {
+  partnerCount: 0,
+  todayRechargeAmount: 0,
+  totalRechargeAmount: 0,
+  todayActiveUsers: 0,
+  todayPaidUsers: 0,
+  paymentRate: 0,
+  range: {
+    timezone: "Asia/Shanghai",
+    startIso: "",
+    endIso: "",
+  },
 };
 
 export default function DashboardOverviewClient() {
-  const [users, setUsers] = useState<AdminUser[]>([]);
-  const [notices, setNotices] = useState<Notice[]>([]);
+  const [metrics, setMetrics] = useState<DashboardMetrics>(emptyMetrics);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
     async function load() {
       try {
+        setLoading(true);
         setError("");
 
-        const [usersRes, noticesRes] = await Promise.all([
-          fetch(adminPath("/api/admin/users"), { cache: "no-store" }),
-          fetch(adminPath("/api/admin/notices"), { cache: "no-store" }),
-        ]);
+        const res = await fetch(adminPath("/api/admin/dashboard"), { cache: "no-store" });
+        const json = await res.json().catch(() => null);
 
-        const usersJson = await usersRes.json().catch(() => null);
-        const noticesJson = await noticesRes.json().catch(() => null);
-
-        if (!usersRes.ok) {
-          throw new Error(usersJson?.message ?? "Failed to fetch users");
+        if (!res.ok) {
+          throw new Error(json?.message ?? "Failed to fetch dashboard metrics");
         }
 
-        if (!noticesRes.ok) {
-          throw new Error(noticesJson?.message ?? "Failed to fetch notices");
-        }
-
-        setUsers(usersJson?.users ?? []);
-        setNotices(noticesJson?.notices ?? []);
+        setMetrics({
+          ...emptyMetrics,
+          ...json,
+          range: {
+            ...emptyMetrics.range,
+            ...(json?.range ?? {}),
+          },
+        });
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : "Failed to load dashboard");
+      } finally {
+        setLoading(false);
       }
     }
 
@@ -51,27 +70,37 @@ export default function DashboardOverviewClient() {
   const cards = useMemo(
     () => [
       {
-        label: "管理员账户",
-        value: String(users.length),
-        hint: "当前后台认证体系中的管理员总数",
+        label: "合伙人总账号数",
+        value: metrics.partnerCount.toLocaleString(),
+        hint: "已绑定 QuickSDK UID 的前台合伙人账号总数",
       },
       {
-        label: "新闻总数",
-        value: String(notices.length),
-        hint: "当前已录入后台的新闻内容总量",
+        label: "今日充值金额",
+        value: formatMoney(metrics.todayRechargeAmount),
+        hint: "按上海时区统计今日首页/钱包充值成功金额",
       },
       {
-        label: "首页精选",
-        value: String(notices.filter((item) => item.showOnHome).length),
-        hint: "会同步展示到前台首页的精选内容",
+        label: "累计充值金额",
+        value: formatMoney(metrics.totalRechargeAmount),
+        hint: "所有已支付订单累计金额",
       },
       {
-        label: "分析模块",
-        value: "待扩展",
-        hint: "后续可接入 DAU、留存、转化和内容效果分析",
+        label: "今日 DAU",
+        value: metrics.todayActiveUsers.toLocaleString(),
+        hint: "今日登录或访问过前台账号的合伙人数",
+      },
+      {
+        label: "今日付费人数",
+        value: metrics.todayPaidUsers.toLocaleString(),
+        hint: "今日至少完成一笔充值的合伙人数",
+      },
+      {
+        label: "今日支付率",
+        value: formatPercent(metrics.paymentRate),
+        hint: "今日付费人数 / 今日 DAU",
       },
     ],
-    [notices, users.length]
+    [metrics]
   );
 
   return (
@@ -79,37 +108,61 @@ export default function DashboardOverviewClient() {
       {error ? <div style={errorStyle}>{error}</div> : null}
 
       <section style={panelStyle}>
-        <div style={panelTitleStyle}>主要指标</div>
-        <div style={gridStyle}>
-          {cards.map((card) => (
-            <article key={card.label} style={cardStyle}>
-              <div style={labelStyle}>{card.label}</div>
-              <div style={valueStyle}>{card.value}</div>
-              <div style={hintStyle}>{card.hint}</div>
-            </article>
-          ))}
+        <div style={headerRowStyle}>
+          <div>
+            <div style={panelTitleStyle}>前台运营概览</div>
+            <div style={hintStyle}>
+              {metrics.range.startIso
+                ? `今日统计区间：${formatDateTime(metrics.range.startIso)} - ${formatDateTime(metrics.range.endIso)} (${metrics.range.timezone})`
+                : "今日统计区间按 Asia/Shanghai 计算"}
+            </div>
+          </div>
+          <button type="button" onClick={() => window.location.reload()} style={refreshButtonStyle}>
+            刷新
+          </button>
         </div>
-      </section>
 
-      <section style={panelStyle}>
-        <div style={panelTitleStyle}>规划中的后台能力</div>
-        <div style={roadmapStyle}>
-          <article style={roadmapCardStyle}>
-            <div style={roadmapTitleStyle}>用户数据中心</div>
-            <div style={hintStyle}>用户画像、状态标签、行为轨迹、运营备注和权限分组。</div>
-          </article>
-          <article style={roadmapCardStyle}>
-            <div style={roadmapTitleStyle}>运营分析看板</div>
-            <div style={hintStyle}>注册漏斗、活跃趋势、内容点击、活动转化和收入表现。</div>
-          </article>
-          <article style={roadmapCardStyle}>
-            <div style={roadmapTitleStyle}>内容协作流</div>
-            <div style={hintStyle}>草稿、审核、定时发布、回滚、版本记录和审批状态。</div>
-          </article>
-        </div>
+        {loading ? (
+          <div style={stateStyle}>加载数据...</div>
+        ) : (
+          <div style={gridStyle}>
+            {cards.map((card) => (
+              <article key={card.label} style={cardStyle}>
+                <div style={labelStyle}>{card.label}</div>
+                <div style={valueStyle}>{card.value}</div>
+                <div style={hintStyle}>{card.hint}</div>
+              </article>
+            ))}
+          </div>
+        )}
       </section>
     </div>
   );
+}
+
+function formatMoney(value: number) {
+  return `¥${Number(value || 0).toLocaleString("zh-CN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function formatPercent(value: number) {
+  return `${Math.round(Number(value || 0) * 10000) / 100}%`;
+}
+
+function formatDateTime(value: string) {
+  if (!value) {
+    return "-";
+  }
+
+  return new Date(value).toLocaleString("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 const panelStyle: React.CSSProperties = {
@@ -119,10 +172,19 @@ const panelStyle: React.CSSProperties = {
   border: "1px solid rgba(124,58,237,0.18)",
 };
 
+const headerRowStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: "16px",
+  alignItems: "flex-start",
+  flexWrap: "wrap",
+  marginBottom: "16px",
+};
+
 const panelTitleStyle: React.CSSProperties = {
   fontSize: "24px",
   fontWeight: 800,
-  marginBottom: "16px",
+  marginBottom: "8px",
 };
 
 const gridStyle: React.CSSProperties = {
@@ -157,23 +219,22 @@ const hintStyle: React.CSSProperties = {
   fontSize: "13px",
 };
 
-const roadmapStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-  gap: "12px",
-};
-
-const roadmapCardStyle: React.CSSProperties = {
-  padding: "18px",
-  borderRadius: "18px",
+const stateStyle: React.CSSProperties = {
+  padding: "42px 16px",
+  borderRadius: "16px",
   background: "rgba(255,255,255,0.03)",
-  border: "1px solid rgba(255,255,255,0.06)",
+  color: "#9ca3af",
+  textAlign: "center",
 };
 
-const roadmapTitleStyle: React.CSSProperties = {
-  fontSize: "18px",
+const refreshButtonStyle: React.CSSProperties = {
+  border: "1px solid rgba(255,255,255,0.08)",
+  borderRadius: "12px",
+  padding: "10px 14px",
+  background: "rgba(255,255,255,0.04)",
+  color: "white",
   fontWeight: 700,
-  marginBottom: "10px",
+  cursor: "pointer",
 };
 
 const errorStyle: React.CSSProperties = {

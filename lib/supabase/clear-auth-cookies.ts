@@ -5,6 +5,8 @@ const COOKIE_PATHS = ["/admin", "/"] as const;
 const COMMON_AUTH_COOKIE_BASES = [
   ADMIN_AUTH_COOKIE_OPTIONS.name,
   "sb-auth-token",
+  "mir-partner-auth-token",
+  "mir-partner-frontend-auth-token",
 ];
 
 export function clearAuthCookies(response: NextResponse) {
@@ -30,7 +32,7 @@ export function clearAuthCookies(response: NextResponse) {
 
 function getCookieChunkNames(baseName: string) {
   const names = [baseName];
-  for (let index = 0; index <= 25; index += 1) {
+  for (let index = 0; index <= 100; index += 1) {
     names.push(`${baseName}.${index}`);
   }
   return names;
