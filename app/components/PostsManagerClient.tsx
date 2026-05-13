@@ -855,7 +855,7 @@ function sanitizeRichTextHtml(html: string) {
     "U",
     "UL",
   ]);
-  const allowedAttributes = new Set(["href", "src", "alt", "title", "style", "target", "rel", "color", "size", "face"]);
+  const allowedAttributes = new Set(["href", "src", "alt", "title", "target", "rel", "color", "size", "face"]);
   const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_ELEMENT);
   const nodes: Element[] = [];
 
