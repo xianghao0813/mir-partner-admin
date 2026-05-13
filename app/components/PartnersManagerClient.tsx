@@ -23,6 +23,7 @@ type PartnerRecord = {
   points: number;
   tier: { id: number; label: string; minPoints: number };
   cloudCoins: number;
+  totalRechargeAmount: number;
   realNameVerified: boolean;
   phone: string;
   maskedPhone: string;
@@ -684,6 +685,7 @@ export default function PartnersManagerClient() {
                     <th style={thStyle}>星级</th>
                     <th style={thStyle}>积分</th>
                     <th style={thStyle}>云币</th>
+                    <th style={thStyle}>累计充值</th>
                     <th style={thStyle}>状态</th>
                     <th style={thStyle}>实名认证</th>
                     <th style={thStyle}>手机号</th>
@@ -725,6 +727,7 @@ export default function PartnersManagerClient() {
                         <td style={tdStyle}>{partner.tier.label}</td>
                         <td style={tdStyle}>{partner.points.toLocaleString()}</td>
                         <td style={tdStyle}>{partner.cloudCoins.toLocaleString()}</td>
+                        <td style={tdStyle}>{formatMoney(partner.totalRechargeAmount)}</td>
                         <td style={tdStyle}><AccountStatusBadge partner={partner} /></td>
                         <td style={tdStyle}>{partner.realNameVerified ? "已认证" : "未认证"}</td>
                         <td style={tdStyle}>{partner.maskedPhone || "-"}</td>
@@ -763,6 +766,7 @@ export default function PartnersManagerClient() {
                 <Metric label="当前 MIR 积分" value={`${selectedPartner.points.toLocaleString()} 分`} />
                 <Metric label="当前星级" value={selectedPartner.tier.label} />
                 <Metric label="当前云币" value={selectedPartner.cloudCoins.toLocaleString()} />
+                <Metric label="累计充值金额" value={formatMoney(selectedPartner.totalRechargeAmount)} />
                 <Metric label="账号状态" value={selectedPartner.accountStatus === "frozen" ? `冻结至 ${formatDate(selectedPartner.frozenUntil)}` : "正常"} />
                 <Metric label="冻结开始" value={selectedPartner.accountStatus === "frozen" ? formatDate(selectedPartner.frozenAt) : "-"} />
                 <Metric label="冻结类型" value={selectedPartner.accountStatus === "frozen" ? (selectedPartner.frozenSource === "auto" ? "自动" : "手动") : "-"} />
@@ -1012,6 +1016,13 @@ function formatDate(value: string | null) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function formatMoney(value: number) {
+  return `¥${Number(value || 0).toLocaleString("zh-CN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
 
 function normalizeTab(value: string | null): PartnerTab {

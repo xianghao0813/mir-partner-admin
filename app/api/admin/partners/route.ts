@@ -50,6 +50,7 @@ export async function GET(request: NextRequest) {
         ].some((value) => value.toLowerCase().includes(query))
       )
     : partners;
+  const rechargeTotals = await readPartnerRechargeTotals(filtered.map((partner) => partner.id));
 
   const partnersWithDbLedgers = await Promise.all(
     filtered.map(async (partner) => {
@@ -60,6 +61,7 @@ export async function GET(request: NextRequest) {
 
       return {
         ...partner,
+        totalRechargeAmount: rechargeTotals.get(partner.id) ?? 0,
         pointTransactions: pointTransactions.length > 0
           ? pointTransactions
           : filterLedgerByMonth(partner.pointTransactions, month),
@@ -74,6 +76,66 @@ export async function GET(request: NextRequest) {
     totalPartners: partners.length,
     partners: partnersWithDbLedgers,
   });
+}
+
+async function readPartnerRechargeTotals(userIds: string[]) {
+  const totals = new Map<string, number>();
+  const uniqueUserIds = [...new Set(userIds.filter(Boolean))];
+  if (uniqueUserIds.length === 0) {
+    return totals;
+  }
+
+  const { data: paidOrders, error: paidOrdersError } = await supabaseAdmin
+    .from("payment_orders")
+    .select("cp_order_no,user_id,paid_amount")
+    .eq("status", "paid")
+    .in("user_id", uniqueUserIds);
+
+  const paidOrderNos = new Set<string>();
+  if (paidOrdersError) {
+    if (paidOrdersError.code !== "42P01") {
+      console.error("[partners recharge totals payment_orders]", paidOrdersError);
+    }
+  } else {
+    for (const row of paidOrders ?? []) {
+      const userId = readString(row.user_id);
+      const orderNo = readString(row.cp_order_no);
+      const amount = readNumber(row.paid_amount);
+      if (userId && amount > 0) {
+        totals.set(userId, (totals.get(userId) ?? 0) + amount);
+      }
+      if (orderNo) {
+        paidOrderNos.add(orderNo);
+      }
+    }
+  }
+
+  const { data: walletRows, error: walletRowsError } = await supabaseAdmin
+    .from("wallet_transactions")
+    .select("transaction_key,user_id,amount")
+    .eq("type", "recharge")
+    .eq("status", "success")
+    .in("user_id", uniqueUserIds)
+    .or("transaction_key.like.sdk-order-mp%,transaction_key.like.sdk-order-cp%");
+
+  if (walletRowsError) {
+    if (walletRowsError.code !== "42P01") {
+      console.error("[partners recharge totals wallet_transactions]", walletRowsError);
+    }
+    return totals;
+  }
+
+  for (const row of walletRows ?? []) {
+    const transactionKey = readString(row.transaction_key);
+    const orderNo = transactionKey.replace(/^sdk-order-/, "");
+    const userId = readString(row.user_id);
+    const amount = readNumber(row.amount);
+    if (userId && orderNo && !paidOrderNos.has(orderNo) && amount > 0) {
+      totals.set(userId, (totals.get(userId) ?? 0) + amount);
+    }
+  }
+
+  return totals;
 }
 
 export async function PATCH(request: NextRequest) {
@@ -349,4 +411,21 @@ export async function POST(request: NextRequest) {
     beforeCoins: testOrder.beforeCoins,
     afterCoins: testOrder.afterCoins,
   });
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function readNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  return 0;
 }
