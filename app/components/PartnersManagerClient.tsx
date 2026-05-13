@@ -76,7 +76,7 @@ const partnerTabs: { key: PartnerTab; label: string }[] = [
 ];
 
 const packageOptions = [
-  { id: 1, label: "100 云币" },
+  { id: 1, label: "2 云币" },
   { id: 2, label: "300 云币" },
   { id: 3, label: "500 云币" },
   { id: 4, label: "1,000 云币" },

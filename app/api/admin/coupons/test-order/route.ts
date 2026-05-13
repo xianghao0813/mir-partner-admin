@@ -20,7 +20,7 @@ type CouponRecord = {
 };
 
 const packageMap = new Map([
-  [1, { id: 1, coins: 100, amount: 100 }],
+  [1, { id: 1, coins: 2, amount: 2 }],
   [2, { id: 2, coins: 300, amount: 300 }],
   [3, { id: 3, coins: 500, amount: 500 }],
   [4, { id: 4, coins: 1000, amount: 1000 }],
