@@ -67,7 +67,7 @@ async function listAllUsers() {
 async function readPaymentStats(startIso: string, endIso: string) {
   const { data: totalRows, error: totalError } = await supabaseAdmin
     .from("payment_orders")
-    .select("paid_amount,user_id,paid_at")
+    .select("cp_order_no,paid_amount,user_id,paid_at")
     .eq("status", "paid");
 
   if (totalError) {
@@ -81,19 +81,57 @@ async function readPaymentStats(startIso: string, endIso: string) {
     };
   }
 
-  const totalAmount = (totalRows ?? []).reduce((sum, row) => sum + readNumber(row.paid_amount), 0);
-  const todayRows = (totalRows ?? []).filter((row) => {
-    const paidAt = readString(row.paid_at);
+  const paidOrders = (totalRows ?? []).map((row) => ({
+    orderNo: readString(row.cp_order_no),
+    userId: readString(row.user_id),
+    amount: readNumber(row.paid_amount),
+    paidAt: readString(row.paid_at),
+  }));
+  const paidOrderNos = new Set(paidOrders.map((row) => row.orderNo).filter(Boolean));
+  const fallbackWalletRows = await readWalletPaymentFallbacks(paidOrderNos);
+  const allRows = [...paidOrders, ...fallbackWalletRows];
+  const totalAmount = allRows.reduce((sum, row) => sum + row.amount, 0);
+  const todayRows = allRows.filter((row) => {
+    const paidAt = row.paidAt;
     return paidAt >= startIso && paidAt < endIso;
   });
-  const todayAmount = todayRows.reduce((sum, row) => sum + readNumber(row.paid_amount), 0);
-  const todayPaidUserCount = new Set(todayRows.map((row) => readString(row.user_id)).filter(Boolean)).size;
+  const todayAmount = todayRows.reduce((sum, row) => sum + row.amount, 0);
+  const todayPaidUserCount = new Set(todayRows.map((row) => row.userId).filter(Boolean)).size;
 
   return {
     todayAmount,
     totalAmount,
     todayPaidUserCount,
   };
+}
+
+async function readWalletPaymentFallbacks(paidOrderNos: Set<string>) {
+  const { data, error } = await supabaseAdmin
+    .from("wallet_transactions")
+    .select("transaction_key,user_id,amount,occurred_at")
+    .eq("type", "recharge")
+    .eq("status", "success")
+    .or("transaction_key.like.sdk-order-mp%,transaction_key.like.sdk-order-cp%");
+
+  if (error) {
+    if (error.code !== "42P01") {
+      console.error("[dashboard wallet payment fallback]", error);
+    }
+    return [];
+  }
+
+  return (data ?? [])
+    .map((row) => {
+      const transactionKey = readString(row.transaction_key);
+      const orderNo = transactionKey.replace(/^sdk-order-/, "");
+      return {
+        orderNo,
+        userId: readString(row.user_id),
+        amount: readNumber(row.amount),
+        paidAt: readString(row.occurred_at),
+      };
+    })
+    .filter((row) => row.orderNo && !paidOrderNos.has(row.orderNo) && row.amount > 0 && row.paidAt);
 }
 
 function getShanghaiDayRange(now = new Date()) {
