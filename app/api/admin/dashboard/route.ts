@@ -108,7 +108,7 @@ async function readPaymentStats(startIso: string, endIso: string) {
 async function readWalletPaymentFallbacks(paidOrderNos: Set<string>) {
   const { data, error } = await supabaseAdmin
     .from("wallet_transactions")
-    .select("transaction_key,user_id,amount,occurred_at")
+    .select("transaction_key,user_id,amount,occurred_at,created_at")
     .eq("type", "recharge")
     .eq("status", "success")
     .or("transaction_key.like.sdk-order-mp%,transaction_key.like.sdk-order-cp%");
@@ -128,7 +128,7 @@ async function readWalletPaymentFallbacks(paidOrderNos: Set<string>) {
         orderNo,
         userId: readString(row.user_id),
         amount: readNumber(row.amount),
-        paidAt: readString(row.occurred_at),
+        paidAt: readString(row.created_at) || readString(row.occurred_at),
       };
     })
     .filter((row) => row.orderNo && !paidOrderNos.has(row.orderNo) && row.amount > 0 && row.paidAt);
