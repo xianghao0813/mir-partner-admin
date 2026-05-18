@@ -21,6 +21,9 @@ type PartnerRecord = {
   partnerCode: string;
   partnerNumber: number;
   points: number;
+  importBaselineAt: string | null;
+  importBaselinePoints: number;
+  importMode: string;
   tier: { id: number; label: string; minPoints: number };
   cloudCoins: number;
   totalRechargeAmount: number;
@@ -40,7 +43,7 @@ type PartnerRecord = {
 };
 
 type LedgerMode = "points" | "coins";
-type PartnerTab = "list" | "frozen" | "points" | "test-order" | "coupons" | "security";
+type PartnerTab = "list" | "frozen" | "points" | "import-baseline" | "test-order" | "coupons" | "security";
 
 type CouponItem = {
   id: string;
@@ -67,10 +70,18 @@ type RiskEvent = {
   createdAt: string;
 };
 
+type ImportPointRow = {
+  uid: string;
+  username: string;
+  partnerCode: string;
+  points: number;
+};
+
 const partnerTabs: { key: PartnerTab; label: string }[] = [
   { key: "list", label: "合伙人列表" },
   { key: "frozen", label: "冻结名单" },
   { key: "points", label: "积分调整" },
+  { key: "import-baseline", label: "积分导入" },
   { key: "test-order", label: "测试订单" },
   { key: "coupons", label: "优惠券" },
   { key: "security", label: "账号风控" },
@@ -106,6 +117,9 @@ export default function PartnersManagerClient() {
   const [adjustAmount, setAdjustAmount] = useState("");
   const [adjustReason, setAdjustReason] = useState("");
   const [adjusting, setAdjusting] = useState(false);
+  const [importRows, setImportRows] = useState<ImportPointRow[]>([]);
+  const [importingBaselines, setImportingBaselines] = useState(false);
+  const [importPreviewName, setImportPreviewName] = useState("");
 
   const [testAmount, setTestAmount] = useState("");
   const [testOrderNo, setTestOrderNo] = useState("");
@@ -341,6 +355,65 @@ export default function PartnersManagerClient() {
       setError(adjustError instanceof Error ? adjustError.message : "积分调整失败。");
     } finally {
       setAdjusting(false);
+    }
+  }
+
+  async function handleImportFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    setError("");
+    setMessage("");
+    setImportRows([]);
+    setImportPreviewName(file?.name ?? "");
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      const text = await file.text();
+      const rows = parseImportPointRows(text);
+      if (rows.length === 0) {
+        throw new Error("文件里没有可导入的数据。请使用 uid,points,partner_code 格式。");
+      }
+      setImportRows(rows);
+      setMessage(`已读取 ${rows.length} 条导入数据，请确认后执行导入。`);
+    } catch (fileError) {
+      setError(fileError instanceof Error ? fileError.message : "文件读取失败。");
+    } finally {
+      event.target.value = "";
+    }
+  }
+
+  async function handleImportBaselines() {
+    setError("");
+    setMessage("");
+
+    if (importRows.length === 0) {
+      setError("请先选择 CSV 文件。");
+      return;
+    }
+
+    setImportingBaselines(true);
+    try {
+      const res = await fetch(adminPath("/api/admin/partners"), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "import-point-baselines",
+          rows: importRows,
+        }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(json?.message ?? "积分导入失败。");
+      }
+
+      setMessage(`积分导入完成：成功 ${json?.updatedCount ?? 0} 个，失败 ${json?.failedCount ?? 0} 个。`);
+      await loadPartners({ q: query, month });
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : "积分导入失败。");
+    } finally {
+      setImportingBaselines(false);
     }
   }
 
@@ -620,6 +693,48 @@ export default function PartnersManagerClient() {
             </form>
           ) : null}
 
+          {activeTab === "import-baseline" ? (
+            <div style={utilityPanelStyle}>
+              <PanelTitle
+                eyebrow="Point Import"
+                title="导入积分基准"
+                description="上传后会强制设置用户当前积分，并从上传时间之后才开始计算新的充值积分。"
+              />
+              <div style={formGridStyle}>
+                <input
+                  type="file"
+                  accept=".csv,.tsv,.txt"
+                  onChange={handleImportFile}
+                  style={compactInputStyle}
+                />
+                <button
+                  type="button"
+                  disabled={importingBaselines || importRows.length === 0}
+                  onClick={handleImportBaselines}
+                  style={primaryButtonStyle}
+                >
+                  {importingBaselines ? "导入中..." : "确认导入"}
+                </button>
+              </div>
+              <div style={mutedTextStyle}>
+                支持表头：uid, username, points, partner_code。只会更新已经在本站注册且能匹配到 UID 或账号的用户。
+              </div>
+              {importRows.length > 0 ? (
+                <div style={importPreviewStyle}>
+                  <strong>{importPreviewName || "导入预览"}</strong>
+                  <div style={mutedTextStyle}>
+                    共 {importRows.length} 条，前 5 条：
+                    {importRows.slice(0, 5).map((row) => (
+                      <span key={`${row.uid}-${row.username}-${row.points}`} style={importPreviewRowStyle}>
+                        UID {row.uid || "-"} / 账号 {row.username || "-"} / 积分 {row.points.toLocaleString()} / 编码 {row.partnerCode || "-"}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           {activeTab === "coupons" ? (
             <form onSubmit={handleCreateCoupon} style={utilityPanelStyle}>
               <PanelTitle
@@ -764,6 +879,8 @@ export default function PartnersManagerClient() {
               <div style={metricGridStyle}>
                 <Metric label="UID" value={selectedPartner.uid || "-"} />
                 <Metric label="当前 MIR 积分" value={`${selectedPartner.points.toLocaleString()} 分`} />
+                <Metric label="导入基准" value={selectedPartner.importMode === "override" ? `${selectedPartner.importBaselinePoints.toLocaleString()} 分` : "-"} />
+                <Metric label="基准时间" value={selectedPartner.importMode === "override" ? formatDate(selectedPartner.importBaselineAt) : "-"} />
                 <Metric label="当前星级" value={selectedPartner.tier.label} />
                 <Metric label="当前云币" value={selectedPartner.cloudCoins.toLocaleString()} />
                 <Metric label="累计充值金额" value={formatMoney(selectedPartner.totalRechargeAmount)} />
@@ -1026,13 +1143,92 @@ function formatMoney(value: number) {
 }
 
 function normalizeTab(value: string | null): PartnerTab {
-  return value === "frozen" || value === "points" || value === "test-order" || value === "coupons" || value === "security" ? value : "list";
+  return value === "frozen" ||
+    value === "points" ||
+    value === "import-baseline" ||
+    value === "test-order" ||
+    value === "coupons" ||
+    value === "security"
+    ? value
+    : "list";
 }
 
 function renderCouponDiscount(coupon: CouponItem) {
   return coupon.discountType === "percent"
     ? `${coupon.discountValue}% 折扣`
     : `立减 ¥${coupon.discountValue}`;
+}
+
+function parseImportPointRows(text: string): ImportPointRow[] {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) {
+    return [];
+  }
+
+  const delimiter = lines[0].includes("\t") ? "\t" : ",";
+  const firstCells = splitDelimitedLine(lines[0], delimiter).map((cell) => cell.trim().toLowerCase());
+  const hasHeader = firstCells.some((cell) =>
+    ["uid", "quicksdk_uid", "username", "account", "points", "mir_points", "partner_code"].includes(cell)
+  );
+  const headers = hasHeader ? firstCells : ["uid", "points", "partner_code", "username"];
+  const dataLines = hasHeader ? lines.slice(1) : lines;
+
+  return dataLines
+    .map((line) => {
+      const cells = splitDelimitedLine(line, delimiter);
+      const source = new Map<string, string>();
+      headers.forEach((header, index) => source.set(header, cells[index]?.trim() ?? ""));
+
+      const uid = source.get("uid") || source.get("quicksdk_uid") || source.get("quick_uid") || "";
+      const username = source.get("username") || source.get("account") || source.get("login_name") || "";
+      const points = Number(source.get("points") || source.get("mir_points") || source.get("point") || "0");
+      const partnerCode = source.get("partner_code") || source.get("partnercode") || source.get("code") || "";
+
+      return {
+        uid,
+        username,
+        partnerCode,
+        points: Number.isFinite(points) ? Math.max(0, Math.floor(points)) : 0,
+      };
+    })
+    .filter((row) => (row.uid || row.username) && row.points >= 0);
+}
+
+function splitDelimitedLine(line: string, delimiter: string) {
+  const cells: string[] = [];
+  let current = "";
+  let quoted = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const next = line[index + 1];
+
+    if (char === '"' && quoted && next === '"') {
+      current += '"';
+      index += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      quoted = !quoted;
+      continue;
+    }
+
+    if (char === delimiter && !quoted) {
+      cells.push(current);
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  cells.push(current);
+  return cells;
 }
 
 function formatRiskDetails(details: Record<string, unknown>) {
@@ -1123,6 +1319,8 @@ const couponFormGridStyle: React.CSSProperties = { display: "grid", gridTemplate
 const packageGridStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "8px" };
 const checkLabelStyle: React.CSSProperties = { display: "flex", alignItems: "center", gap: "8px", color: "#e5e7eb", padding: "9px 10px", borderRadius: "12px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" };
 const securitySummaryStyle: React.CSSProperties = { display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "center", padding: "12px", borderRadius: "14px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", flexWrap: "wrap" };
+const importPreviewStyle: React.CSSProperties = { padding: "12px", borderRadius: "14px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", display: "grid", gap: "8px" };
+const importPreviewRowStyle: React.CSSProperties = { display: "block", marginTop: "4px", color: "#d1d5db" };
 const riskHeaderStyle: React.CSSProperties = { display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "center", flexWrap: "wrap" };
 const riskListStyle: React.CSSProperties = { display: "grid", gap: "10px" };
 const riskItemStyle: React.CSSProperties = { padding: "12px", borderRadius: "14px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" };

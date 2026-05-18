@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminSessionUser } from "@/lib/auth";
 import {
+  applyImportedPointBaseline,
   appendAdminTestRechargeOrder,
   appendManualPointAdjustment,
   buildPartnerRecords,
@@ -58,13 +59,14 @@ export async function GET(request: NextRequest) {
         readPointTransactionsFromDb(partner.id, month),
         readWalletTransactionsFromDb(partner.id, month),
       ]);
+      const rawPointTransactions = pointTransactions.length > 0
+        ? pointTransactions
+        : filterLedgerByMonth(partner.pointTransactions, month);
 
       return {
         ...partner,
         totalRechargeAmount: rechargeTotals.get(partner.id) ?? 0,
-        pointTransactions: pointTransactions.length > 0
-          ? pointTransactions
-          : filterLedgerByMonth(partner.pointTransactions, month),
+        pointTransactions: filterImportedPointLedgers(rawPointTransactions, partner.importMode, partner.importBaselineAt),
         coinTransactions: coinTransactions.length > 0
           ? coinTransactions
           : filterLedgerByMonth(partner.coinTransactions, month),
@@ -138,6 +140,29 @@ async function readPartnerRechargeTotals(userIds: string[]) {
   return totals;
 }
 
+function filterImportedPointLedgers<T extends { createdAt: string | null; type?: string }>(
+  entries: T[],
+  importMode: string,
+  importBaselineAt: string | null
+) {
+  if (importMode !== "override" || !importBaselineAt) {
+    return entries;
+  }
+
+  const baselineTime = new Date(importBaselineAt).getTime();
+  if (!Number.isFinite(baselineTime)) {
+    return entries;
+  }
+
+  return entries.filter((entry) => {
+    if (entry.type === "admin_import_baseline") {
+      return true;
+    }
+    const createdAt = entry.createdAt ? new Date(entry.createdAt).getTime() : NaN;
+    return Number.isFinite(createdAt) && createdAt >= baselineTime;
+  });
+}
+
 export async function PATCH(request: NextRequest) {
   let adminUser;
 
@@ -149,6 +174,10 @@ export async function PATCH(request: NextRequest) {
 
   const body = await request.json().catch(() => null);
   const action = String(body?.action ?? "").trim();
+
+  if (action === "import-point-baselines") {
+    return importPointBaselines(body, adminUser.email ?? adminUser.id);
+  }
 
   if (action === "freeze" || action === "unfreeze") {
     return updatePartnerSecurity(body, adminUser.email ?? adminUser.id, action);
@@ -226,6 +255,134 @@ export async function PATCH(request: NextRequest) {
     },
     { status: failed.length === results.length ? 500 : 200 }
   );
+}
+
+async function importPointBaselines(body: unknown, adminEmail: string) {
+  const payload = body as Record<string, unknown> | null;
+  const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+
+  if (rows.length === 0) {
+    return NextResponse.json({ message: "请上传至少一条积分基准数据。" }, { status: 400 });
+  }
+
+  const normalizedRows = rows
+    .map((row, index) => normalizeImportRow(row, index + 1))
+    .filter((row) => row.uid || row.username);
+
+  if (normalizedRows.length === 0) {
+    return NextResponse.json({ message: "未找到有效 UID 或账号。" }, { status: 400 });
+  }
+
+  const users = await listAllAuthUsers().catch((error) => {
+    console.error("[partners import users]", error);
+    return null;
+  });
+  if (!users) {
+    return NextResponse.json({ message: "Failed to fetch users" }, { status: 500 });
+  }
+  const byUid = new Map<string, typeof users[number]>();
+  const byUsername = new Map<string, typeof users[number]>();
+
+  for (const user of users) {
+    const metadata = user.user_metadata ?? {};
+    const uid = readString(metadata.quicksdk_uid);
+    const username = readString(metadata.quicksdk_username) || readString(metadata.username) || readString(user.email);
+
+    if (uid) {
+      byUid.set(uid, user);
+    }
+    if (username) {
+      byUsername.set(username.toLowerCase(), user);
+    }
+  }
+
+  const results = [];
+
+  for (const row of normalizedRows) {
+    const user =
+      (row.uid ? byUid.get(row.uid) : null) ||
+      (row.username ? byUsername.get(row.username.toLowerCase()) : null);
+
+    if (!user) {
+      results.push({
+        row: row.row,
+        uid: row.uid,
+        username: row.username,
+        success: false,
+        message: "User not found",
+      });
+      continue;
+    }
+
+    const baseline = applyImportedPointBaseline({
+      metadata: user.user_metadata,
+      points: row.points,
+      partnerCode: row.partnerCode,
+      adminEmail,
+    });
+
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(user.id, {
+      user_metadata: baseline.metadata,
+    });
+
+    if (!error) {
+      await insertPointTransaction(user.id, baseline.pointTransaction);
+    }
+
+    results.push({
+      row: row.row,
+      userId: user.id,
+      uid: row.uid || readString(user.user_metadata?.quicksdk_uid),
+      username: row.username || readString(user.user_metadata?.quicksdk_username),
+      success: !error,
+      beforePoints: baseline.beforePoints,
+      afterPoints: baseline.afterPoints,
+      baselineAt: baseline.metadata.mir_import_baseline_at,
+      message: error?.message ?? null,
+    });
+  }
+
+  const failed = results.filter((result) => !result.success);
+  return NextResponse.json(
+    {
+      success: failed.length === 0,
+      updatedCount: results.length - failed.length,
+      failedCount: failed.length,
+      results,
+    },
+    { status: failed.length === results.length ? 500 : 200 }
+  );
+}
+
+async function listAllAuthUsers() {
+  const users = [];
+  let page = 1;
+
+  while (true) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 1000 });
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    users.push(...data.users);
+    if (data.users.length < 1000) {
+      break;
+    }
+    page += 1;
+  }
+
+  return users;
+}
+
+function normalizeImportRow(row: unknown, rowNumber: number) {
+  const source = row && typeof row === "object" ? row as Record<string, unknown> : {};
+  return {
+    row: rowNumber,
+    uid: readString(source.uid || source.quicksdk_uid || source.quickSdkUid || source.quick_uid),
+    username: readString(source.username || source.account || source.loginName || source.login_name),
+    partnerCode: readString(source.partnerCode || source.partner_code || source.code),
+    points: Math.max(0, Math.floor(readNumber(source.points || source.mir_points || source.point))),
+  };
 }
 
 async function updatePartnerSecurity(body: unknown, adminEmail: string, action: "freeze" | "unfreeze") {

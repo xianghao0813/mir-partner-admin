@@ -6,7 +6,7 @@ type Props = {
   title: string;
   description: string;
   section: "dashboard" | "banners" | "accounts" | "posts" | "partners" | "analytics";
-  partnerSubsection?: "list" | "points" | "test-order" | "coupons" | "security" | "frozen";
+  partnerSubsection?: "list" | "points" | "import-baseline" | "test-order" | "coupons" | "security" | "frozen";
   children: React.ReactNode;
 };
 
@@ -19,6 +19,7 @@ const navItems = [
 const partnerNavItems = [
   { href: "/partners?tab=list", key: "list", label: "Partner List" },
   { href: "/partners?tab=points", key: "points", label: "Point Adjustment" },
+  { href: "/partners?tab=import-baseline", key: "import-baseline", label: "Point Import" },
   { href: "/partners?tab=test-order", key: "test-order", label: "Test Orders" },
   { href: "/partners?tab=coupons", key: "coupons", label: "Coupons" },
   { href: "/partners?tab=security", key: "security", label: "Security" },

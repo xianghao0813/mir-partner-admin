@@ -26,6 +26,9 @@ export type PartnerRecord = {
   partnerCode: string;
   partnerNumber: number;
   points: number;
+  importBaselineAt: string | null;
+  importBaselinePoints: number;
+  importMode: string;
   tier: PartnerTier;
   cloudCoins: number;
   realNameVerified: boolean;
@@ -72,6 +75,9 @@ export function buildPartnerRecord(user: User, partnerNumber: number): PartnerRe
     partnerCode: readPartnerCode(metadata, partnerNumber),
     partnerNumber,
     points,
+    importBaselineAt: readString(metadata?.mir_import_baseline_at) || null,
+    importBaselinePoints: readNumber(metadata?.mir_import_baseline_points),
+    importMode: readString(metadata?.mir_import_mode),
     tier: getCurrentTier(points),
     cloudCoins: readCloudCoins(metadata),
     realNameVerified:
@@ -194,6 +200,65 @@ export function appendManualPointAdjustment({
     },
     beforePoints,
     afterPoints,
+    pointTransaction: transaction,
+  };
+}
+
+export function applyImportedPointBaseline({
+  metadata,
+  points,
+  partnerCode,
+  adminEmail,
+  now = new Date(),
+}: {
+  metadata: UserMetadata | undefined;
+  points: number;
+  partnerCode?: string;
+  adminEmail: string;
+  now?: Date;
+}) {
+  const baselinePoints = Math.max(0, Math.floor(points));
+  const beforePoints = readMirPoints(metadata);
+  const afterTier = getCurrentTier(baselinePoints);
+  const monthKey = getShanghaiMonthKey(now);
+  const createdAt = now.toISOString();
+  const normalizedPartnerCode = readValidPartnerCode(partnerCode);
+  const transaction = {
+    id: `import-baseline-${now.getTime()}-${crypto.randomBytes(3).toString("hex")}`,
+    type: "adjust",
+    source: "admin_import_baseline",
+    points: baselinePoints,
+    title: "导入初始积分",
+    description: `管理员导入积分基准；基准时间之前的充值不再计入积分。操作人：${adminEmail}`,
+    adminEmail,
+    beforePoints,
+    afterPoints: baselinePoints,
+    createdAt,
+  };
+
+  return {
+    metadata: {
+      ...(metadata ?? {}),
+      ...(normalizedPartnerCode ? { partner_code: normalizedPartnerCode, mir_partner_code: normalizedPartnerCode } : {}),
+      mir_points: baselinePoints,
+      mir_month_key: monthKey,
+      mir_month_points: 0,
+      mir_wallet_recharge_points: 0,
+      mir_wallet_recharge_month_key: monthKey,
+      mir_wallet_recharge_month_points: 0,
+      mir_import_mode: "override",
+      mir_import_baseline_points: baselinePoints,
+      mir_import_baseline_at: createdAt,
+      mir_import_baseline_by: adminEmail,
+      mir_last_tier_id: afterTier.id,
+      mir_upgraded_month_key: undefined,
+      mir_last_point_source: "admin_import_baseline",
+      mir_last_point_award: 0,
+      mir_last_point_awarded_at: createdAt,
+      mir_point_transactions: null,
+    },
+    beforePoints,
+    afterPoints: baselinePoints,
     pointTransaction: transaction,
   };
 }

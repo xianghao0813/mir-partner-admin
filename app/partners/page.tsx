@@ -32,6 +32,7 @@ export default async function PartnersPage({ searchParams }: Props) {
 
 function normalizePartnerSubsection(value: string | undefined) {
   return value === "points" ||
+    value === "import-baseline" ||
     value === "test-order" ||
     value === "coupons" ||
     value === "security" ||
