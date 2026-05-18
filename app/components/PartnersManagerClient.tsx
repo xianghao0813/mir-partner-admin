@@ -896,7 +896,7 @@ export default function PartnersManagerClient() {
 
               <div style={actionRowStyle}>
                 <button type="button" onClick={() => setLedgerMode("points")} style={secondaryButtonStyle}>查看积分明细</button>
-                <button type="button" onClick={() => setLedgerMode("coins")} style={secondaryButtonStyle}>查看云币明细</button>
+                <button type="button" onClick={() => setLedgerMode("coins")} style={secondaryButtonStyle}>{"\u67e5\u770b\u4e91\u5e01\u660e\u7ec6"}</button>
               </div>
 
               {activeTab === "test-order" ? (
@@ -1052,7 +1052,7 @@ export default function PartnersManagerClient() {
             <div style={modalHeaderStyle}>
               <div>
                 <div style={eyebrowStyle}>{selectedPartner?.partnerCode ?? "-"}</div>
-                <h3 style={modalTitleStyle}>{ledgerMode === "points" ? "积分明细" : "云币明细"}</h3>
+                <h3 style={modalTitleStyle}>{ledgerMode === "points" ? "\u79ef\u5206\u660e\u7ec6" : "\u4e91\u5e01\u660e\u7ec6"}</h3>
               </div>
               <button type="button" onClick={() => setLedgerMode(null)} style={closeButtonStyle}>关闭</button>
             </div>

@@ -31,6 +31,10 @@ export type LedgerEntry = {
   createdAt: string | null;
 };
 
+const LABEL_MIR_POINTS = "\u004d\u0049\u0052 \u79ef\u5206";
+const LABEL_COIN_RECHARGE = "\u4e91\u5e01\u5145\u503c";
+const LABEL_COIN_CONSUME = "\u4e91\u5e01\u4f7f\u7528";
+
 export async function insertWalletTransaction(userId: string, transaction: WalletLedgerInput) {
   const { error } = await supabaseAdmin.from("wallet_transactions").upsert(
     {
@@ -66,7 +70,7 @@ export async function insertPointTransaction(userId: string, transaction: PointL
       source: transaction.source || transaction.type || "admin",
       reference_id: null,
       points: transaction.points,
-      title: transaction.title || "MIR 积分",
+      title: transaction.title || LABEL_MIR_POINTS,
       description: transaction.description || "-",
       occurred_at: transaction.createdAt ?? new Date().toISOString(),
     },
@@ -102,7 +106,7 @@ export async function readWalletTransactionsFromDb(userId: string, month?: strin
     id: readString(item.transaction_key),
     type: readString(item.type) || "coin",
     amount: readNumber(item.coins) || readNumber(item.amount),
-    title: "云币记录",
+    title: readString(item.type) === "consume" ? LABEL_COIN_CONSUME : LABEL_COIN_RECHARGE,
     description: readString(item.description) || "-",
     createdAt: readString(item.occurred_at) || null,
   }));
@@ -131,7 +135,7 @@ export async function readPointTransactionsFromDb(userId: string, month?: string
     id: readString(item.transaction_key),
     type: readString(item.source) || readString(item.type) || "point",
     amount: readNumber(item.points),
-    title: readString(item.title) || "MIR 积分",
+    title: readString(item.title) || LABEL_MIR_POINTS,
     description: readString(item.description) || "-",
     createdAt: readString(item.occurred_at) || null,
   }));
